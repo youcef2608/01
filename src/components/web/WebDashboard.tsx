@@ -289,10 +289,15 @@ export const WebDashboard: React.FC<WebDashboardProps> = ({
                   {call.description}
                 </p>
 
-                {/* Location details */}
-                <div className="flex items-center gap-1.5 text-xs text-stone-300">
-                  <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span className="truncate font-medium">{call.location.placeName}</span>
+                {/* Organization & Location details */}
+                <div className="flex items-center justify-between gap-2 text-xs pt-1">
+                  <div className="flex items-center gap-1.5 text-stone-300 min-w-0">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span className="truncate font-medium">{call.location.placeName}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-lg bg-[#202532] text-emerald-300 text-[10px] font-bold border border-emerald-500/20 truncate max-w-[130px] shrink-0" title={call.creatorOrg}>
+                    {call.creatorOrg || 'جمعية معتمدة'}
+                  </span>
                 </div>
 
                 {/* Skills tags */}
@@ -324,9 +329,17 @@ export const WebDashboard: React.FC<WebDashboardProps> = ({
                     <span>الردود: {call.responsesCount}</span>
                   </button>
 
-                  <span className="text-[11px] text-stone-400">
-                    المؤكد: <strong className="text-emerald-400 font-mono">{call.confirmedCount}</strong> / {call.requiredCount || 5}
-                  </span>
+                  <div className="flex flex-col items-end">
+                    <span className="text-[11px] text-stone-300 font-bold">
+                      المتطوعون: <strong className="text-emerald-400 font-mono">{call.confirmedCount}</strong> من {call.requiredCount || 10} مطلوبين
+                    </span>
+                    <div className="w-24 h-1.5 bg-stone-800 rounded-full mt-1 overflow-hidden">
+                      <div 
+                        className="h-full bg-emerald-500 rounded-full transition-all"
+                        style={{ width: `${Math.min(100, Math.round((call.confirmedCount / (call.requiredCount || 10)) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between gap-2">

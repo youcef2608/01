@@ -14,17 +14,22 @@ import {
   Building2 
 } from 'lucide-react';
 
+import { AuthUser } from '../../types';
+
 interface CreateCallModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaveCall: (call: Call) => void;
+  currentUser?: AuthUser | null;
 }
 
 export const CreateCallModal: React.FC<CreateCallModalProps> = ({
   isOpen,
   onClose,
-  onSaveCall
+  onSaveCall,
+  currentUser
 }) => {
+  const currentAssocName = currentUser?.associationName || currentUser?.name || 'جمعية ناس الخير الجزائر';
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<any>(null);
 
@@ -33,11 +38,21 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<CallCategory>('help');
   const [priority, setPriority] = useState<CallPriority>('high');
-  const [requiredCount, setRequiredCount] = useState<number>(5);
-  const [creatorOrg, setCreatorOrg] = useState('جمعية الإحسان الخيرية');
-  const [contactInfo, setContactInfo] = useState('0550123456 - منسق النداء الميداني');
+  const [requiredCount, setRequiredCount] = useState<number>(10);
+  const [creatorOrg, setCreatorOrg] = useState(currentAssocName);
+  const [contactInfo, setContactInfo] = useState(currentUser?.phone ? `${currentUser.phone} - إدارة الجمعية` : '0550123456 - إدارة الجمعية');
   const [startTime, setStartTime] = useState(new Date().toISOString().slice(0, 16));
   const [fieldDirectives, setFieldDirectives] = useState('يرجى الحضور بالزي المريح، وسيتم توزيع المهام عند نقطة التجمع.');
+
+  // Sync association name when current user or modal changes
+  React.useEffect(() => {
+    if (isOpen) {
+      setCreatorOrg(currentAssocName);
+      if (currentUser?.phone) {
+        setContactInfo(`${currentUser.phone} - ${currentAssocName}`);
+      }
+    }
+  }, [isOpen, currentAssocName, currentUser]);
 
   // Location State (Default: Algeria, open free coordinate picker without wilaya lock)
   const [location, setLocation] = useState<LocationCoords>({
@@ -222,14 +237,21 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
               {/* Association & Category */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                    الجمعية / الجهة المنفذة
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-semibold text-stone-300 flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>الجمعية المنفذة للنداء</span>
+                    </label>
+                    <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-bold">
+                      الجمعية الحالية
+                    </span>
+                  </div>
                   <input
                     type="text"
                     value={creatorOrg}
                     onChange={e => setCreatorOrg(e.target.value)}
-                    className="w-full bg-stone-900/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-stone-900/80 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs text-emerald-300 font-bold focus:outline-none focus:border-emerald-500 shadow-sm"
+                    placeholder="اسم الجمعية المنظمة"
                   />
                 </div>
 
@@ -269,17 +291,56 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-stone-300 mb-1.5">
-                    عدد المتطوعين المطلوبين
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={200}
-                    value={requiredCount}
-                    onChange={e => setRequiredCount(Number(e.target.value))}
-                    className="w-full bg-stone-900/80 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 font-mono"
-                  />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-stone-200 flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>عدد المتطوعين المطلوبين</span>
+                    </label>
+                    <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                      {requiredCount} متطوع
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setRequiredCount(prev => Math.max(1, prev - 1))}
+                      className="w-8 h-8 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold flex items-center justify-center transition-colors border border-white/5"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={requiredCount}
+                      onChange={e => setRequiredCount(Math.max(1, Number(e.target.value)))}
+                      className="w-full text-center bg-stone-900/80 border border-white/10 rounded-xl px-2 py-1.5 text-xs text-emerald-300 font-bold focus:outline-none focus:border-emerald-500 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setRequiredCount(prev => prev + 1)}
+                      className="w-8 h-8 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 font-bold flex items-center justify-center transition-colors border border-white/5"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1 mt-1.5">
+                    {[5, 10, 20, 50].map(cnt => (
+                      <button
+                        key={cnt}
+                        type="button"
+                        onClick={() => setRequiredCount(cnt)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                          requiredCount === cnt
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-stone-800/80 hover:bg-stone-700 text-stone-400'
+                        }`}
+                      >
+                        {cnt}
+                      </button>
+                    ))}
+                    <span className="text-[10px] text-stone-500 mr-auto">متطوع</span>
+                  </div>
                 </div>
               </div>
 

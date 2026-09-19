@@ -247,7 +247,7 @@ export interface BookSearchQueryResult {
   source: 'books_library' | 'gemini_library_synthesis';
 }
 
-export type UserRole = 'volunteer' | 'association_leader' | 'field_medic' | 'coordinator';
+export type UserRole = 'association' | 'association_leader' | 'volunteer' | 'field_medic' | 'coordinator';
 
 export interface AuthUser {
   id: string;
@@ -256,7 +256,7 @@ export interface AuthUser {
   phone: string;
   role: UserRole;
   roleTitle: string;
-  associationName?: string;
+  associationName: string;
   wilaya: string;
   avatarUrl?: string;
   badgeNumber: string;
@@ -264,6 +264,7 @@ export interface AuthUser {
   activeInitiativesCount: number;
   volunteerHours: number;
   points: number;
+  description?: string;
 }
 
 export interface GeminiChatMessage {

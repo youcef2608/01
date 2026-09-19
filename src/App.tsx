@@ -17,20 +17,18 @@ import {
   INITIAL_ARCHIVES
 } from './data/seedData';
 import { DEMO_ACCOUNTS } from './data/authData';
-import { WebNavbar, ActiveTabType } from './components/web/WebNavbar';
+import { AppSidebar, ActiveTabType } from './components/web/AppSidebar';
 import { WebDashboard } from './components/web/WebDashboard';
-import { LiveStreamView } from './components/web/LiveStreamView';
 import { HeatmapPage } from './components/web/HeatmapPage';
 import { InboundAppNotesView } from './components/web/InboundAppNotesView';
-import { ActivityAnalysisView } from './components/web/ActivityAnalysisView';
 import { GeminiAIChatView } from './components/web/GeminiAIChatView';
 import { AuthView } from './components/web/AuthView';
 import { ImpactView } from './components/web/ImpactView';
-import { SettingsView } from './components/web/SettingsView';
 import { CreateCallModal } from './components/web/CreateCallModal';
 import { CallDetailModal } from './components/web/CallDetailModal';
 import { ManageResponsesModal } from './components/web/ManageResponsesModal';
 import { NotificationsDrawer } from './components/web/NotificationsDrawer';
+import { Menu, X, Plus, Bell } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export function App() {
@@ -40,7 +38,7 @@ export function App() {
   const [inboundNotes, setInboundNotes] = useState<AppUserInboundNote[]>(INITIAL_INBOUND_NOTES);
   const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
 
-  // Authenticated user state (defaults to verified volunteer demo account)
+  // Authenticated association state (defaults to accredited association account)
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(DEMO_ACCOUNTS[0]);
 
   // Active responses pool (linked to calls)
@@ -95,8 +93,9 @@ export function App() {
     }
   ]);
 
-  // Active navigation tab (ordered: dashboard -> live [instead of books] -> heatmap -> analysis -> leaderboard -> inbound_notes -> settings)
+  // Active navigation tab (Permanent: dashboard -> heatmap -> ai_chat -> leaderboard -> inbound_notes -> auth)
   const [activeTab, setActiveTab] = useState<ActiveTabType>('dashboard');
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   // Modals & Drawers
   const [isCreateCallOpen, setIsCreateCallOpen] = useState(false);
@@ -113,7 +112,7 @@ export function App() {
       id: `notif-${Date.now()}`,
       userId: 'admin',
       title: `تم إطلاق نداء جديد: ${newCall.title}`,
-      body: `تم تسجيل النداء بنجاح في ${newCall.location.city} (${newCall.location.placeName}) وهو متاح الآن للمتطوعين على الخريطة.`,
+      body: `تم تسجيل النداء بنجاح باسم ${newCall.creatorOrg} في ${newCall.location.city} ومتاح الآن للمتطوعين على الخريطة.`,
       type: newCall.priority === 'urgent' ? 'urgent_alert' : 'nearby_call',
       callId: newCall.id,
       read: false,
@@ -173,38 +172,6 @@ export function App() {
     }).catch(() => {});
   }, []);
 
-  // Handlers: Evaluations
-  const handleAddEvaluation = (newEval: ActivityEvaluation) => {
-    setEvaluations(prev => [newEval, ...prev]);
-
-    fetch('/api/evaluations/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ evaluations: [newEval] })
-    }).catch(() => {});
-
-    const newNotif: AppNotification = {
-      id: `notif-${Date.now()}`,
-      userId: 'admin',
-      title: `تم توثيق وتحليل نشاط: ${newEval.activityTitle}`,
-      body: `قام الذكاء الاصطناعي باستخراج الدروس المستفادة ونقاط القوة والفرص لخدمة الجمعيات الأخرى.`,
-      type: 'general',
-      read: false,
-      createdAt: new Date().toISOString()
-    };
-    setNotifications(prev => [newNotif, ...prev]);
-  };
-
-  const handleUpdateEvaluation = (updated: ActivityEvaluation) => {
-    setEvaluations(prev => prev.map(e => (e.id === updated.id ? updated : e)));
-    
-    fetch('/api/evaluations/sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ evaluations: [updated] })
-    }).catch(() => {});
-  };
-
   // Handlers: Inbound Notes
   const handleUpdateInboundNoteStatus = (noteId: string, newStatus: 'new' | 'reviewed' | 'resolved') => {
     setInboundNotes(prev =>
@@ -228,118 +195,193 @@ export function App() {
   };
 
   const unreadNotificationsCount = notifications.filter(n => !n.read).length;
+  const activeCallsCount = calls.filter(c => c.status === 'active' || c.status === 'receiving_responses').length;
+  const inboundNotesCount = inboundNotes.filter(n => n.status === 'new').length;
 
   return (
-    <div className="min-h-screen bg-[#0e1015] text-stone-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
-      {/* Sleek Athar Web Navigation Bar */}
-      <WebNavbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onOpenCreateCall={() => setIsCreateCallOpen(true)}
-        activeCallsCount={calls.filter(c => c.status === 'active' || c.status === 'receiving_responses').length}
-        inboundNotesCount={inboundNotes.filter(n => n.status === 'new').length}
-        unreadNotificationsCount={unreadNotificationsCount}
-        onOpenNotifications={() => setIsNotificationsOpen(true)}
-        currentUser={currentUser}
-      />
+    <div className="min-h-screen bg-[#0c0e14] text-stone-100 flex flex-col md:flex-row font-sans selection:bg-emerald-500 selection:text-white antialiased">
+      {/* 1. Permanent Desktop Sidebar ("اجعل هذا قائمة دائما") */}
+      <div className="hidden md:block shrink-0">
+        <AppSidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onOpenCreateCall={() => setIsCreateCallOpen(true)}
+          activeCallsCount={activeCallsCount}
+          inboundNotesCount={inboundNotesCount}
+          unreadNotificationsCount={unreadNotificationsCount}
+          onOpenNotifications={() => setIsNotificationsOpen(true)}
+          currentUser={currentUser}
+        />
+      </div>
 
-      {/* Main Content View */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
-        {activeTab === 'dashboard' && (
-          <WebDashboard
-            calls={calls}
-            onOpenCreateCall={() => setIsCreateCallOpen(true)}
-            onOpenHeatmap={() => setActiveTab('heatmap')}
-            onSelectCall={call => setSelectedCallForDetail(call)}
-            onOpenResponses={call => setSelectedCallForResponses(call)}
-            onUpdateCallStatus={handleUpdateCallStatus}
+      {/* 2. Mobile Top Bar with Hamburger & Logo */}
+      <div className="md:hidden sticky top-0 z-40 bg-[#10131a]/95 backdrop-blur-md border-b border-[#1f2430] px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <img 
+            src="/app-logo.jpg" 
+            alt="شعار المنصة" 
+            className="w-9 h-9 rounded-xl object-cover ring-1 ring-emerald-500/40"
           />
-        )}
-
-        {/* مباشر (In place of كتب as requested, without a split) */}
-        {activeTab === 'live' && (
-          <LiveStreamView
-            calls={calls}
-            onSelectCall={call => setSelectedCallForDetail(call)}
-            onOpenCreateCall={() => setIsCreateCallOpen(true)}
-          />
-        )}
-
-        {activeTab === 'heatmap' && (
-          <HeatmapPage
-            calls={calls}
-            onSelectCall={call => setSelectedCallForDetail(call)}
-          />
-        )}
-
-        {/* دردشة Gemini الميدانية (Matching user's requested screenshot layout) */}
-        {activeTab === 'ai_chat' && (
-          <GeminiAIChatView
-            calls={calls}
-            currentWilaya={currentUser?.wilaya || '16 - الجزائر العاصمة'}
-          />
-        )}
-
-        {activeTab === 'analysis' && (
-          <ActivityAnalysisView
-            evaluations={evaluations}
-            calls={calls}
-            onAddEvaluation={handleAddEvaluation}
-            onUpdateEvaluation={handleUpdateEvaluation}
-            onOpenCreateCall={() => setIsCreateCallOpen(true)}
-          />
-        )}
-
-        {activeTab === 'leaderboard' && (
-          <ImpactView
-            currentLeaderboard={INITIAL_LEADERBOARD}
-            archives={INITIAL_ARCHIVES}
-          />
-        )}
-
-        {activeTab === 'inbound_notes' && (
-          <InboundAppNotesView
-            notes={inboundNotes}
-            calls={calls}
-            onUpdateNoteStatus={handleUpdateInboundNoteStatus}
-            onAddNewNote={handleAddNewInboundNote}
-          />
-        )}
-
-        {/* صفحة تسجيل الدخول وإدارة حساب المتطوع الميداني */}
-        {activeTab === 'auth' && (
-          <AuthView
-            currentUser={currentUser}
-            onLogin={user => {
-              setCurrentUser(user);
-              setActiveTab('dashboard');
-            }}
-            onLogout={() => setCurrentUser(null)}
-            onNavigateHome={() => setActiveTab('dashboard')}
-          />
-        )}
-
-        {activeTab === 'settings' && (
-          <SettingsView />
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-[#1e222b] bg-[#12141a] py-6 text-center text-xs text-stone-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span className="font-semibold text-stone-400">منظومة أثر الجزائر الميدانية</span>
+          <div>
+            <div className="text-sm font-extrabold text-white flex items-center gap-1">
+              <span>أثر</span>
+              <span className="text-[10px] text-emerald-400 font-mono">Athar DZ</span>
+            </div>
+            <div className="text-[9px] text-stone-400">بوابة الجمعيات المعتمدة</div>
           </div>
-          <p>© 2026 أثر | Athar DZ — جميع الحقوق محفوظة لفرق العمل الإنساني والتطوعي بالجزائر</p>
         </div>
-      </footer>
 
-      {/* Create Call Modal with Real Interactive Map */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsCreateCallOpen(true)}
+            className="p-2 rounded-xl bg-emerald-600 text-white shadow-sm"
+            title="إنشاء نداء"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsNotificationsOpen(true)}
+            className="relative p-2 rounded-xl bg-[#161a22] text-stone-300 border border-white/5"
+            title="الإشعارات"
+          >
+            <Bell className="w-4 h-4" />
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute -top-1 -left-1 w-3.5 h-3.5 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center">
+                {unreadNotificationsCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileDrawerOpen(prev => !prev)}
+            className="p-2 rounded-xl bg-[#1c212c] text-stone-200 border border-white/10"
+            title="فتح القائمة"
+          >
+            {mobileDrawerOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Slide-over Drawer containing the exact same permanent sidebar */}
+      {mobileDrawerOpen && (
+        <div className="md:hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-start animate-in fade-in duration-200">
+          <div className="w-72 bg-[#10131a] h-full shadow-2xl relative animate-in slide-in-from-right duration-200 flex flex-col">
+            <div className="absolute top-4 left-4 z-50">
+              <button
+                type="button"
+                onClick={() => setMobileDrawerOpen(false)}
+                className="p-1.5 rounded-xl bg-stone-800/80 text-stone-300 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <AppSidebar
+              activeTab={activeTab}
+              setActiveTab={tab => {
+                setActiveTab(tab);
+                setMobileDrawerOpen(false);
+              }}
+              onOpenCreateCall={() => {
+                setIsCreateCallOpen(true);
+                setMobileDrawerOpen(false);
+              }}
+              activeCallsCount={activeCallsCount}
+              inboundNotesCount={inboundNotesCount}
+              unreadNotificationsCount={unreadNotificationsCount}
+              onOpenNotifications={() => {
+                setIsNotificationsOpen(true);
+                setMobileDrawerOpen(false);
+              }}
+              currentUser={currentUser}
+            />
+          </div>
+          <div className="flex-1" onClick={() => setMobileDrawerOpen(false)} />
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+          {activeTab === 'dashboard' && (
+            <WebDashboard
+              calls={calls}
+              onOpenCreateCall={() => setIsCreateCallOpen(true)}
+              onOpenHeatmap={() => setActiveTab('heatmap')}
+              onSelectCall={call => setSelectedCallForDetail(call)}
+              onOpenResponses={call => setSelectedCallForResponses(call)}
+              onUpdateCallStatus={handleUpdateCallStatus}
+            />
+          )}
+
+          {activeTab === 'heatmap' && (
+            <HeatmapPage
+              calls={calls}
+              onSelectCall={call => setSelectedCallForDetail(call)}
+            />
+          )}
+
+          {/* دردشة Gemini الميدانية */}
+          {activeTab === 'ai_chat' && (
+            <GeminiAIChatView
+              calls={calls}
+              currentWilaya={currentUser?.wilaya || '16 - الجزائر العاصمة'}
+            />
+          )}
+
+          {/* المتصدرون والأثر */}
+          {activeTab === 'leaderboard' && (
+            <ImpactView
+              currentLeaderboard={INITIAL_LEADERBOARD}
+              archives={INITIAL_ARCHIVES}
+            />
+          )}
+
+          {/* ملاحظات الجوال */}
+          {activeTab === 'inbound_notes' && (
+            <InboundAppNotesView
+              notes={inboundNotes}
+              calls={calls}
+              onUpdateNoteStatus={handleUpdateInboundNoteStatus}
+              onAddNewNote={handleAddNewInboundNote}
+            />
+          )}
+
+          {/* صفحة تسجيل الدخول وإدارة حساب الجمعية المعتمدة */}
+          {activeTab === 'auth' && (
+            <AuthView
+              currentUser={currentUser}
+              onLogin={user => {
+                setCurrentUser(user);
+                setActiveTab('dashboard');
+              }}
+              onLogout={() => setCurrentUser(null)}
+              onNavigateHome={() => setActiveTab('dashboard')}
+            />
+          )}
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-[#1a1d26] bg-[#0e1017] py-5 text-center text-xs text-stone-500 mt-auto">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span className="font-semibold text-stone-400">منظومة أثر الجزائر الميدانية — بوابة الجمعيات</span>
+            </div>
+            <p>© 2026 أثر | Athar DZ — النظام الرقمي الموحد لإدارة النداءات المجتمعية بالجزائر</p>
+          </div>
+        </footer>
+      </div>
+
+      {/* Create Call Modal with Real Interactive Map & Current Association */}
       <CreateCallModal
         isOpen={isCreateCallOpen}
         onClose={() => setIsCreateCallOpen(false)}
         onSaveCall={handleSaveCall}
+        currentUser={currentUser}
       />
 
       {/* Call Details Modal */}

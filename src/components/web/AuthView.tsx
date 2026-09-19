@@ -49,7 +49,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [activeTab, setActiveTab] = useState<'signin' | 'signup' | 'demo'>('signin');
 
   // Sign in form state
-  const [loginIdentifier, setLoginIdentifier] = useState('0551 23 98 76');
+  const [loginIdentifier, setLoginIdentifier] = useState('0550 12 34 56');
   const [loginPassword, setLoginPassword] = useState('••••••••');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -61,7 +61,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regWilaya, setRegWilaya] = useState('16 - الجزائر العاصمة');
-  const [regRole, setRegRole] = useState<UserRole>('volunteer');
+  const [regRole, setRegRole] = useState<UserRole>('association');
   const [regAssociation, setRegAssociation] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regPasswordConfirm, setRegPasswordConfirm] = useState('');
@@ -95,25 +95,28 @@ export const AuthView: React.FC<AuthViewProps> = ({
         onLogin(matched);
         confetti({ particleCount: 50, spread: 60, origin: { y: 0.4 } });
       } else if (cleanInput.length >= 8) {
-        // Create authenticated user session for custom input
+        // Create authenticated association session for custom input
+        const customName = cleanInput.includes('@') ? `جمعية ${cleanInput.split('@')[0]}` : 'جمعية تطوعية معتمدة';
         const customUser: AuthUser = {
-          id: `usr-${Date.now()}`,
-          name: cleanInput.includes('@') ? cleanInput.split('@')[0] : 'متطوع أثر',
+          id: `assoc-${Date.now()}`,
+          name: customName,
           email: cleanInput.includes('@') ? cleanInput : `${cleanInput}@athar.dz`,
           phone: cleanInput,
-          role: 'volunteer',
-          roleTitle: 'متطوع ميداني مسجل',
+          role: 'association',
+          roleTitle: 'جمعية وطنية معتمدة',
+          associationName: customName,
           wilaya: '16 - الجزائر العاصمة',
-          badgeNumber: `DZ-VOL-${Math.floor(1000 + Math.random() * 9000)}`,
+          badgeNumber: `DZ-ASSOC-${Math.floor(1000 + Math.random() * 9000)}`,
           isVerified: true,
           activeInitiativesCount: 1,
-          volunteerHours: 12,
-          points: 150
+          volunteerHours: 120,
+          points: 850,
+          avatarUrl: '/app-logo.jpg'
         };
         onLogin(customUser);
         confetti({ particleCount: 40, spread: 50, origin: { y: 0.4 } });
       } else {
-        setLoginError('يرجى إدخال رقم هاتف جزائري صحيح (مثال: 0551239876) أو بريد إلكتروني.');
+        setLoginError('يرجى إدخال رقم هاتف الجمعية أو البريد الإلكتروني الرسمي.');
       }
       setIsSubmitting(false);
     }, 500);
@@ -124,12 +127,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
     e.preventDefault();
     setRegError(null);
 
-    if (!regName.trim()) {
-      setRegError('يرجى إدخال الاسم الكامل.');
+    const assocName = regAssociation.trim() || regName.trim();
+    if (!assocName) {
+      setRegError('يرجى إدخال اسم الجمعية أو المنظمة.');
       return;
     }
     if (!regPhone.trim()) {
-      setRegError('يرجى إدخال رقم الهاتف الجزائري للتواصل الميداني.');
+      setRegError('يرجى إدخال رقم هاتف التواصل الرسمي للجمعية.');
       return;
     }
     if (regPassword.length < 6) {
@@ -141,34 +145,28 @@ export const AuthView: React.FC<AuthViewProps> = ({
       return;
     }
     if (!agreeTerms) {
-      setRegError('يجب الموافقة على ميثاق الشرف والعمل التطوعي الإنساني.');
+      setRegError('يجب الموافقة على ميثاق الشرف والعمل الإنساني التطوعي.');
       return;
     }
 
     setIsSubmitting(true);
     setTimeout(() => {
       const wilayaNumber = regWilaya.split('-')[0].trim();
-      const roleTitles: Record<UserRole, string> = {
-        volunteer: 'متطوع ميداني مسجل',
-        association_leader: `مسؤول في ${regAssociation || 'جمعية معتمدة'}`,
-        field_medic: 'طاقم إسناد طبي وإسعاف',
-        coordinator: 'منسق ميداني'
-      };
-
       const newUser: AuthUser = {
-        id: `dz-user-${Date.now()}`,
-        name: regName,
+        id: `dz-assoc-${Date.now()}`,
+        name: assocName,
         email: regEmail || `${regPhone.replace(/\s+/g, '')}@athar.dz`,
         phone: regPhone,
-        role: regRole,
-        roleTitle: roleTitles[regRole],
-        associationName: regRole === 'association_leader' ? regAssociation : undefined,
+        role: 'association',
+        roleTitle: 'جمعية معتمدة',
+        associationName: assocName,
         wilaya: regWilaya,
-        badgeNumber: `DZ-${wilayaNumber}-${Math.floor(1000 + Math.random() * 9000)}`,
+        badgeNumber: `DZ-ASSOC-${wilayaNumber}-${Math.floor(1000 + Math.random() * 9000)}`,
         isVerified: true,
         activeInitiativesCount: 0,
         volunteerHours: 0,
-        points: 100
+        points: 200,
+        avatarUrl: '/app-logo.jpg'
       };
 
       onLogin(newUser);
