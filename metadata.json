@@ -1,0 +1,11 @@
+{
+  "name": "أثر | Athar",
+  "description": "منصة أثر لإدارة النداءات المجتمعية والبث المباشر الميداني ومتابعة التغطيات الحية على خريطة الجزائر التفاعلية.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
