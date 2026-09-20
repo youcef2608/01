@@ -1,12 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   AuthUser, 
   UserRole 
 } from '../../types';
-import { 
-  ALGERIA_WILAYAS, 
-  DEMO_ACCOUNTS 
-} from '../../data/authData';
 import { 
   ShieldCheck, 
   Lock, 
@@ -17,19 +13,15 @@ import {
   MapPin, 
   Eye, 
   EyeOff, 
-  CheckCircle2, 
-  Fingerprint, 
-  ArrowRight, 
-  Award, 
-  Clock, 
-  Sparkles, 
   LogOut, 
   RefreshCw, 
-  QrCode, 
   AlertCircle,
-  HelpCircle,
-  FileCheck,
-  ChevronRight
+  UserPlus,
+  Navigation,
+  ArrowRight,
+  KeyRound,
+  CheckCircle2,
+  Sparkles
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -46,94 +38,191 @@ export const AuthView: React.FC<AuthViewProps> = ({
   onLogout,
   onNavigateHome
 }) => {
-  const [activeTab, setActiveTab] = useState<'signin' | 'signup' | 'demo'>('signin');
+  const [activeTab, setActiveTab] = useState<'signin' | 'signup'>('signin');
 
-  // Sign in form state
-  const [loginIdentifier, setLoginIdentifier] = useState('0550 12 34 56');
-  const [loginPassword, setLoginPassword] = useState('••••••••');
+  // Sign in form state - Clean & empty by default (No fake hardcoded credentials)
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Sign up form state
+  // Verification Code (OTP) state - Resend integration
+  const [verificationStep, setVerificationStep] = useState<'credentials' | 'otp'>('credentials');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpSentEmail, setOtpSentEmail] = useState<string | null>(null);
+  const [otpMessage, setOtpMessage] = useState<string | null>(null);
+  const [devCodePreview, setDevCodePreview] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  // Sign up form state - Clean & empty
   const [regName, setRegName] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regWilaya, setRegWilaya] = useState('16 - الجزائر العاصمة');
   const [regRole, setRegRole] = useState<UserRole>('association');
   const [regAssociation, setRegAssociation] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regPasswordConfirm, setRegPasswordConfirm] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [regError, setRegError] = useState<string | null>(null);
+  const [regGpsCoords, setRegGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [isDetectingGps, setIsDetectingGps] = useState(false);
 
-  // Forgot password / OTP state
-  const [showForgotModal, setShowForgotModal] = useState(false);
-  const [forgotPhone, setForgotPhone] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [enteredOtp, setEnteredOtp] = useState('');
-  const [otpSuccess, setOtpSuccess] = useState(false);
-
-  // Volunteer Card Modal
-  const [showIdCard, setShowIdCard] = useState(false);
-
-  // Handle Login Submit
-  const handleSignInSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    setIsSubmitting(true);
-
-    setTimeout(() => {
-      // Check if matches any demo user by phone or email
-      const cleanInput = loginIdentifier.replace(/\s+/g, '').toLowerCase();
-      const matched = DEMO_ACCOUNTS.find(
-        acc => acc.phone.replace(/\s+/g, '') === cleanInput || acc.email.toLowerCase() === cleanInput
+  // Smooth GPS detection without blocking alert errors
+  const handleDetectGps = () => {
+    setIsDetectingGps(true);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setIsDetectingGps(false);
+          const lat = Number(pos.coords.latitude.toFixed(4));
+          const lng = Number(pos.coords.longitude.toFixed(4));
+          setRegGpsCoords({ lat, lng });
+        },
+        (err) => {
+          setIsDetectingGps(false);
+          console.warn('GPS notice, using regional coordinate fallback:', err);
+          // Standard Algeria coordinates (Algiers)
+          setRegGpsCoords({ lat: 36.7538, lng: 3.0588 });
+        },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
       );
-
-      if (matched) {
-        onLogin(matched);
-        confetti({ particleCount: 50, spread: 60, origin: { y: 0.4 } });
-      } else if (cleanInput.length >= 8) {
-        // Create authenticated association session for custom input
-        const customName = cleanInput.includes('@') ? `جمعية ${cleanInput.split('@')[0]}` : 'جمعية تطوعية معتمدة';
-        const customUser: AuthUser = {
-          id: `assoc-${Date.now()}`,
-          name: customName,
-          email: cleanInput.includes('@') ? cleanInput : `${cleanInput}@athar.dz`,
-          phone: cleanInput,
-          role: 'association',
-          roleTitle: 'جمعية وطنية معتمدة',
-          associationName: customName,
-          wilaya: '16 - الجزائر العاصمة',
-          badgeNumber: `DZ-ASSOC-${Math.floor(1000 + Math.random() * 9000)}`,
-          isVerified: true,
-          activeInitiativesCount: 1,
-          volunteerHours: 120,
-          points: 850,
-          avatarUrl: '/app-logo.jpg'
-        };
-        onLogin(customUser);
-        confetti({ particleCount: 40, spread: 50, origin: { y: 0.4 } });
-      } else {
-        setLoginError('يرجى إدخال رقم هاتف الجمعية أو البريد الإلكتروني الرسمي.');
-      }
-      setIsSubmitting(false);
-    }, 500);
+    } else {
+      setIsDetectingGps(false);
+      setRegGpsCoords({ lat: 36.7538, lng: 3.0588 });
+    }
   };
 
-  // Handle Sign Up Submit
-  const handleSignUpSubmit = (e: React.FormEvent) => {
+  // Real Login against Server Database - Triggers OTP Verification via Resend
+  const handleSignInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+
+    const cleanInput = loginIdentifier.trim();
+    const cleanPass = loginPassword.trim();
+
+    if (!cleanInput || !cleanPass) {
+      setLoginError('يرجى إدخال اسم الحساب أو رقم الهاتف وكلمة المرور.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: cleanInput, password: cleanPass })
+      });
+      const data = await res.json().catch(() => null);
+
+      if (data && data.success) {
+        if (data.requireCode) {
+          // Switch to OTP verification step
+          setVerificationStep('otp');
+          setOtpSentEmail(data.email || cleanInput);
+          setDevCodePreview(data.code || null);
+          setOtpMessage(data.message || 'تم توليد رمز التحقق بنجاح.');
+          setResendCooldown(60);
+        } else if (data.user) {
+          onLogin(data.user);
+          confetti({ particleCount: 50, spread: 60, origin: { y: 0.4 } });
+        }
+      } else {
+        setLoginError(data?.message || 'بيانات الدخول غير صحيحة، يرجى التأكد أو إنشاء حساب جديد.');
+      }
+    } catch (err) {
+      setLoginError('تعذر الاتصال بقاعدة البيانات، يرجى المحاولة مرة أخرى.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Step 2: Confirm OTP Code & Finalize Login
+  const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError(null);
+
+    const cleanInput = loginIdentifier.trim();
+    const cleanPass = loginPassword.trim();
+    const cleanCode = otpCode.trim();
+
+    if (!cleanCode || cleanCode.length < 6) {
+      setLoginError('يرجى إدخال رمز التحقق المكون من 6 أرقام كاملة.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: cleanInput, password: cleanPass, code: cleanCode })
+      });
+      const data = await res.json().catch(() => null);
+
+      if (data && data.success && data.user) {
+        onLogin(data.user);
+        confetti({ particleCount: 70, spread: 80, origin: { y: 0.4 } });
+      } else {
+        setLoginError(data?.message || 'رمز التحقق غير صحيح أو منتهي الصلاحية، يرجى التأكد.');
+      }
+    } catch (err) {
+      setLoginError('تعذر التحقق من الرمز، يرجى إعادة المحاولة.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Resend OTP Code via Resend
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0) return;
+    setIsSubmitting(true);
+    setLoginError(null);
+    try {
+      const res = await fetch('/api/auth/send-verification-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: otpSentEmail && otpSentEmail.includes('@') ? otpSentEmail : undefined,
+          phone: loginIdentifier.trim()
+        })
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.success) {
+        setDevCodePreview(data.code || null);
+        setOtpMessage(data.message || 'تم إرسال رمز تحقق جديد بنجاح.');
+        setResendCooldown(60);
+      } else {
+        setLoginError(data?.message || 'فشل إرسال رمز التحقق، يرجى المحاولة لاحقاً.');
+      }
+    } catch {
+      setLoginError('خطأ أثناء إعادة إرسال الرمز.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Real Registration in Server Database
+  const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError(null);
 
     const assocName = regAssociation.trim() || regName.trim();
     if (!assocName) {
-      setRegError('يرجى إدخال اسم الجمعية أو المنظمة.');
+      setRegError('يرجى إدخال اسم الجمعية أو الحساب.');
       return;
     }
     if (!regPhone.trim()) {
-      setRegError('يرجى إدخال رقم هاتف التواصل الرسمي للجمعية.');
+      setRegError('يرجى إدخال رقم الهاتف للتواصل.');
       return;
     }
     if (regPassword.length < 6) {
@@ -145,309 +234,146 @@ export const AuthView: React.FC<AuthViewProps> = ({
       return;
     }
     if (!agreeTerms) {
-      setRegError('يجب الموافقة على ميثاق الشرف والعمل الإنساني التطوعي.');
+      setRegError('يرجى الموافقة على ميثاق العمل التطوعي.');
       return;
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      const wilayaNumber = regWilaya.split('-')[0].trim();
-      const newUser: AuthUser = {
-        id: `dz-assoc-${Date.now()}`,
-        name: assocName,
-        email: regEmail || `${regPhone.replace(/\s+/g, '')}@athar.dz`,
-        phone: regPhone,
-        role: 'association',
-        roleTitle: 'جمعية معتمدة',
-        associationName: assocName,
-        wilaya: regWilaya,
-        badgeNumber: `DZ-ASSOC-${wilayaNumber}-${Math.floor(1000 + Math.random() * 9000)}`,
-        isVerified: true,
-        activeInitiativesCount: 0,
-        volunteerHours: 0,
-        points: 200,
-        avatarUrl: '/app-logo.jpg'
-      };
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: assocName,
+          phone: regPhone.trim(),
+          email: regEmail.trim(),
+          password: regPassword,
+          role: regRole,
+          associationName: assocName,
+          gpsCoords: regGpsCoords || { lat: 36.7538, lng: 3.0588 }
+        })
+      });
+      const data = await res.json().catch(() => null);
 
-      onLogin(newUser);
+      if (data && data.success && data.user) {
+        onLogin(data.user);
+        confetti({ particleCount: 70, spread: 80, origin: { y: 0.4 } });
+      } else {
+        setRegError(data?.message || 'تعذر إنشاء الحساب، يرجى التأكد من البيانات.');
+      }
+    } catch (err) {
+      setRegError('حدث خطأ في الاتصال بقاعدة البيانات.');
+    } finally {
       setIsSubmitting(false);
-      confetti({ particleCount: 70, spread: 80, origin: { y: 0.4 } });
-    }, 600);
+    }
   };
 
-  // Biometric login simulation
-  const handleBiometricLogin = () => {
-    setIsSubmitting(true);
-    setTimeout(() => {
-      const defaultUser = DEMO_ACCOUNTS[0];
-      onLogin(defaultUser);
-      setIsSubmitting(false);
-      confetti({ particleCount: 45, spread: 60, origin: { y: 0.4 } });
-    }, 400);
-  };
-
-  // If user is already logged in, show authenticated dashboard card
+  // If user is logged in: Show Real Profile Card (No fake numbers or mock stats)
   if (currentUser) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 animate-in fade-in duration-300">
-        <div className="rounded-3xl bg-[#13161f] border border-[#252a36] shadow-2xl overflow-hidden">
-          {/* Header Banner */}
-          <div className="relative p-6 sm:p-8 bg-gradient-to-r from-emerald-950/60 via-[#151924] to-[#121622] border-b border-[#252a36]">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  {currentUser.avatarUrl ? (
-                    <img 
-                      src={currentUser.avatarUrl} 
-                      alt={currentUser.name} 
-                      className="w-16 h-16 rounded-2xl object-cover border-2 border-emerald-500 shadow-xl"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 rounded-2xl bg-emerald-600/30 border-2 border-emerald-500 flex items-center justify-center text-xl font-bold text-emerald-300">
-                      DZ
-                    </div>
-                  )}
-                  <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-[#13161f] flex items-center justify-center text-[10px] text-white font-bold">
-                    ✓
+      <div className="max-w-3xl mx-auto py-8 px-4 animate-in fade-in duration-300 text-right">
+        <div className="rounded-3xl bg-[#111622] border border-stone-800 shadow-xl overflow-hidden">
+          {/* Header */}
+          <div className="p-6 sm:p-8 bg-[#151c2c] border-b border-stone-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl">
+                {currentUser.name ? currentUser.name[0] : 'DZ'}
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-xl font-bold text-white">{currentUser.name}</h2>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+                    {currentUser.roleTitle || 'حساب معتمد'}
                   </span>
                 </div>
-
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-xl font-extrabold text-white">{currentUser.name}</h2>
-                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold">
-                      {currentUser.roleTitle}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-stone-400 mt-1">
-                    <span className="flex items-center gap-1 text-stone-300">
-                      <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-                      {currentUser.wilaya}
-                    </span>
-                    <span>•</span>
-                    <span className="font-mono text-stone-400">{currentUser.badgeNumber}</span>
-                  </div>
-                </div>
+                <p className="text-xs text-stone-400 mt-1 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>حساب نشط ومسجل في قاعدة البيانات الرسمية</span>
+                </p>
               </div>
+            </div>
 
-              {/* Action buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowIdCard(true)}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-white text-xs font-bold border border-white/10 transition-colors"
-                >
-                  <QrCode className="w-4 h-4 text-emerald-400" />
-                  <span>بطاقتي الرقمية</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 text-xs font-bold transition-colors"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span>تسجيل الخروج</span>
-                </button>
-              </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onNavigateHome}
+                className="px-4 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-colors"
+              >
+                لوحة العمليات 🏠
+              </button>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="px-4 py-2 rounded-xl bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>تسجيل الخروج</span>
+              </button>
             </div>
           </div>
 
-          {/* Stats Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-x-reverse divide-[#252a36] bg-[#0f1118] border-b border-[#252a36]">
-            <div className="p-4 text-center">
-              <span className="text-[11px] text-stone-400 block mb-1">ساعات التطوع</span>
-              <span className="text-xl font-black text-white font-mono">{currentUser.volunteerHours} س</span>
+          {/* Real Statistics Bar (Starts with actual 0 or registered progress, no fake numbers) */}
+          <div className="grid grid-cols-3 divide-x divide-x-reverse divide-stone-800 bg-[#0d111a] border-b border-stone-800 text-center">
+            <div className="p-4">
+              <span className="text-xs text-stone-400 block mb-1">ساعات النشاط الميداني</span>
+              <span className="text-xl font-bold text-white font-mono">{currentUser.volunteerHours || 0} س</span>
             </div>
-            <div className="p-4 text-center">
-              <span className="text-[11px] text-stone-400 block mb-1">نقاط الأثر</span>
-              <span className="text-xl font-black text-emerald-400 font-mono">{currentUser.points}</span>
+            <div className="p-4">
+              <span className="text-xs text-stone-400 block mb-1">نقاط الأثر المعتمدة</span>
+              <span className="text-xl font-bold text-emerald-400 font-mono">{currentUser.points || 0}</span>
             </div>
-            <div className="p-4 text-center">
-              <span className="text-[11px] text-stone-400 block mb-1">المبادرات المنفذة</span>
-              <span className="text-xl font-black text-white font-mono">{currentUser.activeInitiativesCount}</span>
-            </div>
-            <div className="p-4 text-center">
-              <span className="text-[11px] text-stone-400 block mb-1">حالة الاعتماد</span>
-              <span className="text-xs font-bold text-emerald-400 flex items-center justify-center gap-1 mt-1">
-                <ShieldCheck className="w-4 h-4" />
-                معتمد رسمياً
-              </span>
+            <div className="p-4">
+              <span className="text-xs text-stone-400 block mb-1">المبادرات المنجزة</span>
+              <span className="text-xl font-bold text-white font-mono">{currentUser.activeInitiativesCount || 0}</span>
             </div>
           </div>
 
-          {/* Body Content */}
-          <div className="p-6 sm:p-8 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-2xl bg-[#171b26] border border-white/5 space-y-2">
-                <span className="text-xs font-bold text-stone-300 block">بيانات الاتصال والتواصل:</span>
-                <div className="space-y-1.5 text-xs text-stone-400">
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-white font-mono">{currentUser.phone}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-3.5 h-3.5 text-blue-400" />
-                    <span className="text-white">{currentUser.email}</span>
-                  </div>
-                  {currentUser.associationName && (
-                    <div className="flex items-center gap-2">
-                      <Building2 className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="text-amber-300">{currentUser.associationName}</span>
-                    </div>
-                  )}
-                </div>
+          {/* Contact Details */}
+          <div className="p-6 sm:p-8 space-y-3">
+            <span className="text-xs font-bold text-stone-300 block">بيانات التواصل المعتمدة:</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-stone-400">
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-[#141926] border border-stone-800">
+                <Phone className="w-4 h-4 text-emerald-400" />
+                <span className="text-white font-mono">{currentUser.phone}</span>
               </div>
-
-              <div className="p-4 rounded-2xl bg-[#171b26] border border-white/5 space-y-2">
-                <span className="text-xs font-bold text-stone-300 block">الوصول السريع للخدمات:</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={onNavigateHome}
-                    className="p-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 text-xs font-bold text-center transition-colors"
-                  >
-                    لوحة العمليات 🏠
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('demo')}
-                    className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-stone-300 text-xs font-bold text-center border border-white/10 transition-colors"
-                  >
-                    تبديل الحساب 🔁
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Demo Switcher within Profile */}
-            <div className="pt-4 border-t border-[#252a36]">
-              <span className="text-xs font-bold text-stone-400 block mb-3">
-                تبديل الحساب بنقرة واحدة لاختبار الصلاحيات:
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                {DEMO_ACCOUNTS.map(acc => (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    onClick={() => onLogin(acc)}
-                    className={`p-3 rounded-xl border text-right transition-all text-xs flex items-center gap-2.5 ${
-                      currentUser.id === acc.id
-                        ? 'bg-emerald-600/20 border-emerald-500 text-white shadow-md'
-                        : 'bg-[#151924] border-white/5 hover:border-white/20 text-stone-300 hover:text-white'
-                    }`}
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center font-bold text-xs shrink-0">
-                      {acc.name[0]}
-                    </div>
-                    <div className="truncate">
-                      <span className="font-bold block truncate">{acc.name}</span>
-                      <span className="text-[10px] text-stone-400 truncate block">{acc.roleTitle}</span>
-                    </div>
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-[#141926] border border-stone-800">
+                <Mail className="w-4 h-4 text-cyan-400" />
+                <span className="text-white">{currentUser.email || 'غير محدد'}</span>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Digital ID Card Modal */}
-        {showIdCard && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="max-w-md w-full rounded-3xl bg-gradient-to-b from-[#141926] to-[#0c0e14] border border-emerald-500/30 p-6 shadow-2xl relative text-center space-y-4">
-              <button
-                type="button"
-                onClick={() => setShowIdCard(false)}
-                className="absolute top-4 left-4 text-stone-400 hover:text-white"
-              >
-                ✕
-              </button>
-
-              <div className="flex items-center justify-center gap-2 text-emerald-400 font-bold text-sm">
-                <ShieldCheck className="w-5 h-5" />
-                <span>الجمهورية الجزائرية الديمقراطية الشعبية</span>
-              </div>
-              <h3 className="text-lg font-black text-white">بطاقة المتطوع الرقمية الموحدة</h3>
-
-              <div className="p-4 rounded-2xl bg-black/40 border border-white/10 space-y-3">
-                <div className="w-20 h-20 mx-auto rounded-2xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-2xl font-black text-emerald-300">
-                  DZ
-                </div>
-                <div>
-                  <h4 className="font-extrabold text-white text-base">{currentUser.name}</h4>
-                  <p className="text-xs text-emerald-400 font-bold">{currentUser.roleTitle}</p>
-                  <p className="text-xs text-stone-400 mt-0.5">{currentUser.wilaya}</p>
-                </div>
-                <div className="py-2 border-t border-b border-white/10 text-xs flex justify-around font-mono">
-                  <div>
-                    <span className="text-[10px] text-stone-500 block">رقم الشارة</span>
-                    <span className="text-white font-bold">{currentUser.badgeNumber}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-stone-500 block">ساعات العمل</span>
-                    <span className="text-emerald-400 font-bold">{currentUser.volunteerHours} س</span>
-                  </div>
-                </div>
-
-                {/* Simulated QR Code */}
-                <div className="w-28 h-28 mx-auto bg-white p-2 rounded-xl flex items-center justify-center shadow-lg">
-                  <div className="w-full h-full border-4 border-black p-1 flex flex-col items-center justify-between">
-                    <div className="flex justify-between w-full">
-                      <div className="w-4 h-4 bg-black"></div>
-                      <div className="w-4 h-4 bg-black"></div>
-                    </div>
-                    <span className="text-[9px] font-black text-black font-mono tracking-tighter">ATHAR DZ</span>
-                    <div className="flex justify-between w-full">
-                      <div className="w-4 h-4 bg-black"></div>
-                      <div className="w-4 h-4 bg-black"></div>
-                    </div>
-                  </div>
-                </div>
-                <span className="text-[10px] text-stone-400 block font-mono">
-                  صالحة لعمليات الإسناد الميداني والتدخل في كامل التراب الوطني
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowIdCard(false)}
-                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs"
-              >
-                إغلاق البطاقة
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
 
-  // Not logged in: Show the sleek, comprehensive Algerian login / registration experience
+  // Real Authentication Screen (Clean, Empty Fields, Real Validation)
   return (
-    <div className="max-w-xl mx-auto py-8 px-4 animate-in fade-in duration-300">
-      {/* Brand Header */}
+    <div className="max-w-md mx-auto py-8 px-4 animate-in fade-in duration-300 text-right">
+      {/* Header */}
       <div className="text-center mb-6 space-y-2">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-stone-900 border border-stone-800 text-stone-300 text-xs font-semibold">
           <span>🇩🇿</span>
-          <span>منظومة أثر الجزائر الميدانية</span>
+          <span>بوابة الدخول الميدانية الرسمية</span>
         </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-          بوابة الدخول الموحدة للمتطوعين والجمعيات
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+          تسجيل الدخول للمنظومة
         </h1>
-        <p className="text-xs sm:text-sm text-stone-400 max-w-md mx-auto leading-relaxed">
-          سجّل دخولك لمتابعة النداءات الميدانية، تلقي التنبيهات، وإدارة فرق الاستجابة في الـ 58 ولاية.
+        <p className="text-xs sm:text-sm text-stone-400 max-w-sm mx-auto leading-relaxed">
+          إدارة النداءات الميدانية، تلقي التنبيهات، والتنسيق الفوري لفرق العمل.
         </p>
       </div>
 
-      {/* Main Form Container */}
-      <div className="rounded-3xl bg-[#13161f] border border-[#252a36] shadow-2xl overflow-hidden">
+      {/* Container */}
+      <div className="rounded-3xl bg-[#10141d] border border-stone-800 shadow-xl overflow-hidden">
         {/* Navigation Tabs */}
-        <div className="grid grid-cols-3 border-b border-[#252a36] bg-[#0f1118] text-xs font-bold">
+        <div className="grid grid-cols-2 border-b border-stone-800 bg-[#0c0f17] text-xs font-bold">
           <button
             type="button"
-            onClick={() => setActiveTab('signin')}
+            onClick={() => { setActiveTab('signin'); setLoginError(null); }}
             className={`py-3.5 transition-all text-center ${
               activeTab === 'signin'
-                ? 'text-emerald-400 border-b-2 border-emerald-500 bg-[#141824]'
+                ? 'text-emerald-400 border-b-2 border-emerald-500 bg-[#121622]'
                 : 'text-stone-400 hover:text-white'
             }`}
           >
@@ -455,199 +381,275 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('signup')}
+            onClick={() => { setActiveTab('signup'); setRegError(null); }}
             className={`py-3.5 transition-all text-center ${
               activeTab === 'signup'
-                ? 'text-emerald-400 border-b-2 border-emerald-500 bg-[#141824]'
+                ? 'text-emerald-400 border-b-2 border-emerald-500 bg-[#121622]'
                 : 'text-stone-400 hover:text-white'
             }`}
           >
             إنشاء حساب جديد
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('demo')}
-            className={`py-3.5 transition-all text-center flex items-center justify-center gap-1.5 ${
-              activeTab === 'demo'
-                ? 'text-emerald-400 border-b-2 border-emerald-500 bg-[#141824]'
-                : 'text-stone-400 hover:text-white'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>حسابات تجريبية</span>
-          </button>
         </div>
 
-        <div className="p-6 sm:p-8">
-          {/* TAB 1: SIGN IN */}
+        <div className="p-6 sm:p-7">
+          {/* TAB 1: REAL SIGN IN (CREDENTIALS OR OTP) */}
           {activeTab === 'signin' && (
-            <form onSubmit={handleSignInSubmit} className="space-y-4">
-              {loginError && (
-                <div className="p-3 rounded-2xl bg-red-950/40 border border-red-500/30 text-red-200 text-xs flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                  <span>{loginError}</span>
-                </div>
+            <>
+              {verificationStep === 'credentials' ? (
+                <form onSubmit={handleSignInSubmit} className="space-y-4">
+                  {loginError && (
+                    <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-200 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>{loginError}</span>
+                    </div>
+                  )}
+
+                  {/* Identifier Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-stone-300 block">
+                      اسم الحساب أو رقم الهاتف أو البريد الإلكتروني
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={loginIdentifier}
+                        onChange={e => setLoginIdentifier(e.target.value)}
+                        placeholder="أدخل اسم الحساب أو رقم الهاتف"
+                        className="w-full px-4 py-2.5 rounded-xl bg-[#141926] border border-stone-700/80 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors pr-10"
+                        required
+                      />
+                      <User className="w-4 h-4 text-stone-400 absolute right-3.5 top-3" />
+                    </div>
+                  </div>
+
+                  {/* Password Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-stone-300 block">كلمة المرور</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={loginPassword}
+                        onChange={e => setLoginPassword(e.target.value)}
+                        placeholder="أدخل كلمة المرور"
+                        dir="ltr"
+                        className="w-full px-4 py-2.5 rounded-xl bg-[#141926] border border-stone-700/80 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors pr-10 pl-10"
+                        required
+                      />
+                      <Lock className="w-4 h-4 text-stone-400 absolute right-3.5 top-3" />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(prev => !prev)}
+                        className="absolute left-3.5 top-3 text-stone-400 hover:text-white"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Remember Me */}
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-2 text-xs text-stone-300 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={e => setRememberMe(e.target.checked)}
+                        className="rounded border-stone-700 bg-stone-900 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      <span>تذكرني على هذا الجهاز</span>
+                    </label>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>جارٍ التحقق وتأمين الجلسة...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>تسجيل الدخول الميداني</span>
+                        <ArrowRight className="w-4 h-4 rotate-180" />
+                      </>
+                    )}
+                  </button>
+
+                  {/* Direct Underneath Toggle to Signup */}
+                  <div className="pt-3 border-t border-stone-800 text-center space-y-2">
+                    <p className="text-xs text-stone-400">
+                      ليس لديك حساب حتى الآن؟
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('signup')}
+                      className="w-full py-2.5 rounded-xl bg-stone-800/80 hover:bg-stone-700/80 border border-stone-700/80 text-stone-200 font-bold text-xs transition-all flex items-center justify-center gap-2"
+                    >
+                      <UserPlus className="w-4 h-4 text-emerald-400" />
+                      <span>إنشاء حساب جديد</span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* STEP 2: OTP VERIFICATION CODE VIEW */
+                <form onSubmit={handleVerifyOtpSubmit} className="space-y-4 text-center">
+                  <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <KeyRound className="w-6 h-6 animate-pulse" />
+                  </div>
+
+                  <div>
+                    <h3 className="text-base font-bold text-white">إدخال رمز التحقق (OTP)</h3>
+                    <p className="text-xs text-stone-400 mt-1">
+                      تم إرسال رمز الأمان المكون من 6 أرقام إلى:
+                    </p>
+                    <span className="inline-block mt-1 px-3 py-0.5 rounded-full bg-[#141926] border border-stone-700 text-emerald-400 font-mono text-xs font-bold">
+                      {otpSentEmail || loginIdentifier}
+                    </span>
+                  </div>
+
+                  {/* Dev / Testing Quick-Fill Badge */}
+                  {devCodePreview && (
+                    <button
+                      type="button"
+                      onClick={() => setOtpCode(devCodePreview)}
+                      className="w-full py-2 px-3 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      <span>رمز التحقق الفوري: <span className="font-mono tracking-wider font-extrabold text-white underline">{devCodePreview}</span> (اضغط للتعبئة التلقائية)</span>
+                    </button>
+                  )}
+
+                  {loginError && (
+                    <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-200 text-xs flex items-center justify-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span>{loginError}</span>
+                    </div>
+                  )}
+
+                  {/* 6-Digit Code Input */}
+                  <div className="space-y-1.5 text-right">
+                    <label className="text-xs font-bold text-stone-300 block text-center">
+                      أدخل رمز التحقق (6 أرقام)
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      autoFocus
+                      value={otpCode}
+                      onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="• • • • • •"
+                      dir="ltr"
+                      className="w-full py-3 text-2xl font-mono tracking-[0.4em] text-center rounded-xl bg-[#141926] border border-emerald-500/60 text-white placeholder:text-stone-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all font-bold"
+                      required
+                    />
+                  </div>
+
+                  {/* Submit OTP */}
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || otpCode.length < 6}
+                    className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>جارٍ التحقق وتأكيد الدخول...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>تأكيد رمز التحقق والدخول</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Resend Code & Back */}
+                  <div className="flex items-center justify-between pt-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={resendCooldown > 0 || isSubmitting}
+                      className="text-stone-400 hover:text-emerald-400 disabled:opacity-40 transition-colors"
+                    >
+                      {resendCooldown > 0 ? `إعادة الإرسال بعد (${resendCooldown} ث)` : 'إعادة إرسال الرمز'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVerificationStep('credentials');
+                        setOtpCode('');
+                        setLoginError(null);
+                      }}
+                      className="text-stone-400 hover:text-white transition-colors"
+                    >
+                      ← العودة للبيانات
+                    </button>
+                  </div>
+                </form>
               )}
-
-              {/* Phone / Email */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-300 flex items-center justify-between">
-                  <span>رقم الهاتف الجزائري أو البريد الإلكتروني</span>
-                  <span className="text-[10px] text-stone-500">DZ +213</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={loginIdentifier}
-                    onChange={e => setLoginIdentifier(e.target.value)}
-                    placeholder="0551 23 98 76 أو example@athar.dz"
-                    dir="ltr"
-                    className="w-full px-4 py-3 rounded-2xl bg-[#171b26] border border-white/10 text-sm text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors pl-10 font-mono"
-                    required
-                  />
-                  <Phone className="w-4 h-4 text-stone-400 absolute left-3.5 top-3.5" />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <label className="font-bold text-stone-300">كلمة المرور</label>
-                  <button
-                    type="button"
-                    onClick={() => setShowForgotModal(true)}
-                    className="text-emerald-400 hover:text-emerald-300 text-[11px] font-semibold"
-                  >
-                    نسيت كلمة المرور؟
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={loginPassword}
-                    onChange={e => setLoginPassword(e.target.value)}
-                    placeholder="••••••••"
-                    dir="ltr"
-                    className="w-full px-4 py-3 rounded-2xl bg-[#171b26] border border-white/10 text-sm text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors pl-10 pr-10"
-                    required
-                  />
-                  <Lock className="w-4 h-4 text-stone-400 absolute right-3.5 top-3.5" />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(prev => !prev)}
-                    className="absolute left-3.5 top-3.5 text-stone-400 hover:text-white"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Remember Me */}
-              <div className="flex items-center justify-between pt-1">
-                <label className="flex items-center gap-2 text-xs text-stone-300 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={rememberMe}
-                    onChange={e => setRememberMe(e.target.checked)}
-                    className="rounded border-stone-700 bg-stone-900 text-emerald-500 focus:ring-emerald-500"
-                  />
-                  <span>تذكرني على هذا الجهاز</span>
-                </label>
-              </div>
-
-              {/* Submit CTA */}
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-xl shadow-emerald-950/50 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {isSubmitting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>جارٍ التحقق وتأمين الجلسة...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>تسجيل الدخول الميداني</span>
-                    <ArrowRight className="w-4 h-4 rotate-180" />
-                  </>
-                )}
-              </button>
-
-              {/* Biometric Quick Login */}
-              <div className="pt-3 border-t border-white/5 text-center">
-                <button
-                  type="button"
-                  onClick={handleBiometricLogin}
-                  disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 text-xs text-stone-400 hover:text-emerald-400 transition-colors"
-                >
-                  <Fingerprint className="w-4 h-4 text-emerald-500" />
-                  <span>دخول سريع ببصمة الإصبع أو Face ID للمتطوع</span>
-                </button>
-              </div>
-            </form>
+            </>
           )}
 
-          {/* TAB 2: SIGN UP */}
+          {/* TAB 2: REAL SIGN UP */}
           {activeTab === 'signup' && (
-            <form onSubmit={handleSignUpSubmit} className="space-y-4">
+            <form onSubmit={handleSignUpSubmit} className="space-y-3.5">
               {regError && (
-                <div className="p-3 rounded-2xl bg-red-950/40 border border-red-500/30 text-red-200 text-xs flex items-center gap-2">
+                <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/30 text-red-200 text-xs flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
                   <span>{regError}</span>
                 </div>
               )}
 
-              {/* Full Name */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-300">الاسم الكامل</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={regName}
-                    onChange={e => setRegName(e.target.value)}
-                    placeholder="مثال: يوسف بن مهيدي"
-                    className="w-full px-4 py-2.5 rounded-2xl bg-[#171b26] border border-white/10 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors pl-10"
-                    required
-                  />
-                  <User className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
-                </div>
+              {/* Name */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-stone-300 block">الاسم أو اسم الجمعية</label>
+                <input
+                  type="text"
+                  value={regName}
+                  onChange={e => setRegName(e.target.value)}
+                  placeholder="مثال: جمعية ناس الخير"
+                  className="w-full px-4 py-2.5 rounded-xl bg-[#141926] border border-stone-700/80 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500"
+                  required
+                />
               </div>
 
               {/* Role Selection */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-300">صفة الحساب الميداني</label>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-stone-300 block">صفة الحساب</label>
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => setRegRole('volunteer')}
-                    className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
-                      regRole === 'volunteer'
+                    onClick={() => setRegRole('association')}
+                    className={`py-2 px-1 rounded-xl border text-center text-xs font-bold transition-all ${
+                      regRole === 'association'
                         ? 'bg-emerald-600/20 border-emerald-500 text-white'
-                        : 'bg-[#171b26] border-white/5 text-stone-400 hover:text-white'
-                    }`}
-                  >
-                    🤝 متطوع ميداني
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRegRole('association_leader')}
-                    className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
-                      regRole === 'association_leader'
-                        ? 'bg-emerald-600/20 border-emerald-500 text-white'
-                        : 'bg-[#171b26] border-white/5 text-stone-400 hover:text-white'
+                        : 'bg-[#141926] border-stone-800 text-stone-400 hover:text-white'
                     }`}
                   >
                     🏢 مسؤول جمعية
                   </button>
                   <button
                     type="button"
+                    onClick={() => setRegRole('volunteer')}
+                    className={`py-2 px-1 rounded-xl border text-center text-xs font-bold transition-all ${
+                      regRole === 'volunteer'
+                        ? 'bg-emerald-600/20 border-emerald-500 text-white'
+                        : 'bg-[#141926] border-stone-800 text-stone-400 hover:text-white'
+                    }`}
+                  >
+                    🤝 متطوع ميداني
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setRegRole('field_medic')}
-                    className={`p-2.5 rounded-xl border text-center text-xs font-bold transition-all ${
+                    className={`py-2 px-1 rounded-xl border text-center text-xs font-bold transition-all ${
                       regRole === 'field_medic'
                         ? 'bg-emerald-600/20 border-emerald-500 text-white'
-                        : 'bg-[#171b26] border-white/5 text-stone-400 hover:text-white'
+                        : 'bg-[#141926] border-stone-800 text-stone-400 hover:text-white'
                     }`}
                   >
                     🚑 طاقم إسعاف
@@ -655,89 +657,73 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 </div>
               </div>
 
-              {/* Association Name if selected */}
-              {regRole === 'association_leader' && (
-                <div className="space-y-1.5 animate-in fade-in duration-150">
-                  <label className="text-xs font-bold text-stone-300">اسم الجمعية أو المبادرة المعتمدة</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={regAssociation}
-                      onChange={e => setRegAssociation(e.target.value)}
-                      placeholder="مثال: جمعية ناس الخير، جمعية سبل الخيرات..."
-                      className="w-full px-4 py-2.5 rounded-2xl bg-[#171b26] border border-white/10 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors pl-10"
-                    />
-                    <Building2 className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
-                  </div>
-                </div>
-              )}
-
-              {/* Algerian Phone Number */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-300">رقم الهاتف الجزائري (للتنسيق والطوارئ)</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={regPhone}
-                    onChange={e => setRegPhone(e.target.value)}
-                    placeholder="0550 00 00 00 / 0660... / 0770..."
-                    dir="ltr"
-                    className="w-full px-4 py-2.5 rounded-2xl bg-[#171b26] border border-white/10 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 transition-colors pl-10 font-mono"
-                    required
-                  />
-                  <Phone className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
-                </div>
+              {/* Phone */}
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-stone-300 block">رقم الهاتف للتواصل</label>
+                <input
+                  type="text"
+                  value={regPhone}
+                  onChange={e => setRegPhone(e.target.value)}
+                  placeholder="0550 00 00 00"
+                  dir="ltr"
+                  className="w-full px-4 py-2.5 rounded-xl bg-[#141926] border border-stone-700/80 text-xs text-white placeholder:text-stone-500 focus:outline-none focus:border-emerald-500 font-mono"
+                  required
+                />
               </div>
 
-              {/* Wilaya Picker */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-300">الولاية الميدانية (من ولايات الجزائر الـ 58)</label>
-                <div className="relative">
-                  <select
-                    value={regWilaya}
-                    onChange={e => setRegWilaya(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-2xl bg-[#171b26] border border-white/10 text-xs text-white focus:outline-none focus:border-emerald-500 transition-colors"
-                  >
-                    {ALGERIA_WILAYAS.map(w => (
-                      <option key={w} value={w} className="bg-[#141824] text-white">
-                        {w}
-                      </option>
-                    ))}
-                  </select>
+              {/* Smooth GPS Location Determination */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-stone-300 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>تحديد الموقع بـ GPS</span>
+                  </label>
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                    {regGpsCoords ? `${regGpsCoords.lat}، ${regGpsCoords.lng}` : 'تلقائي عبر GPS'}
+                  </span>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleDetectGps}
+                  disabled={isDetectingGps}
+                  className="w-full py-2 px-3 rounded-xl bg-[#141926] hover:bg-[#182030] border border-stone-700/80 text-emerald-400 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Navigation className={`w-3.5 h-3.5 ${isDetectingGps ? 'animate-spin' : ''}`} />
+                  <span>{isDetectingGps ? 'جارٍ جلب إحداثيات الموقع...' : regGpsCoords ? '✓ تم تحديد الموقع بنجاح' : 'تحديد موقعي الحالي بـ GPS'}</span>
+                </button>
               </div>
 
               {/* Password & Confirm */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-stone-300">كلمة المرور</label>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-stone-300 block">كلمة المرور</label>
                   <input
                     type="password"
                     value={regPassword}
                     onChange={e => setRegPassword(e.target.value)}
                     placeholder="••••••••"
                     dir="ltr"
-                    className="w-full px-4 py-2.5 rounded-2xl bg-[#171b26] border border-white/10 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full px-3 py-2 rounded-xl bg-[#141926] border border-stone-700/80 text-xs text-white focus:outline-none focus:border-emerald-500"
                     required
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-stone-300">تأكيد كلمة المرور</label>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-stone-300 block">تأكيد المرور</label>
                   <input
                     type="password"
                     value={regPasswordConfirm}
                     onChange={e => setRegPasswordConfirm(e.target.value)}
                     placeholder="••••••••"
                     dir="ltr"
-                    className="w-full px-4 py-2.5 rounded-2xl bg-[#171b26] border border-white/10 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full px-3 py-2 rounded-xl bg-[#141926] border border-stone-700/80 text-xs text-white focus:outline-none focus:border-emerald-500"
                     required
                   />
                 </div>
               </div>
 
-              {/* Terms Checkbox */}
+              {/* Terms */}
               <div className="pt-1">
-                <label className="flex items-start gap-2 text-xs text-stone-300 cursor-pointer select-none">
+                <label className="flex items-start gap-2 text-xs text-stone-400 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={agreeTerms}
@@ -746,169 +732,34 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     required
                   />
                   <span>
-                    أوافق على ميثاق العمل التطوعي الجزائري والالتزام بمعايير السلامة والتنسيق مع الحماية المدنية.
+                    أوافق على ميثاق العمل التطوعي والالتزام بمعايير السلامة.
                   </span>
                 </label>
               </div>
 
-              {/* Submit Button */}
+              {/* Submit */}
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xl shadow-emerald-950/50 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition-all active:scale-[0.99] disabled:opacity-50"
               >
-                {isSubmitting ? 'جارٍ إنشاء الحساب وإصدار الشارة...' : 'تأكيد التسجيل وإصدار بطاقة المتطوع'}
+                {isSubmitting ? 'جارٍ تسجيل الحساب...' : 'تأكيد إنشاء الحساب الجديد'}
               </button>
-            </form>
-          )}
 
-          {/* TAB 3: QUICK DEMO ACCOUNTS (1-Click instant test) */}
-          {activeTab === 'demo' && (
-            <div className="space-y-3 animate-in fade-in duration-150">
-              <p className="text-xs text-stone-400">
-                اختر أحد الحسابات الميدانية المعتمدة للدخول الفوري وتجربة كافة وظائف المنصة:
-              </p>
-
-              <div className="space-y-2.5">
-                {DEMO_ACCOUNTS.map(acc => (
-                  <div
-                    key={acc.id}
-                    onClick={() => {
-                      onLogin(acc);
-                      confetti({ particleCount: 50, spread: 60, origin: { y: 0.4 } });
-                    }}
-                    className="p-3.5 rounded-2xl bg-[#171b26] hover:bg-[#1f2535] border border-white/10 hover:border-emerald-500/40 cursor-pointer transition-all flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-3">
-                      {acc.avatarUrl ? (
-                        <img 
-                          src={acc.avatarUrl} 
-                          alt={acc.name} 
-                          className="w-10 h-10 rounded-xl object-cover border border-white/10"
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-xs font-bold text-white">
-                          DZ
-                        </div>
-                      )}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-white text-xs group-hover:text-emerald-300 transition-colors">
-                            {acc.name}
-                          </span>
-                          <span className="text-[10px] text-stone-400 font-mono">({acc.badgeNumber})</span>
-                        </div>
-                        <span className="text-[11px] text-emerald-400 block font-medium">
-                          {acc.roleTitle}
-                        </span>
-                        <span className="text-[10px] text-stone-400">
-                          {acc.wilaya} • {acc.volunteerHours} ساعة تطوع
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="px-3 py-1.5 rounded-xl bg-emerald-600/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 group-hover:bg-emerald-600 group-hover:text-white transition-all">
-                      دخول فوري ➔
-                    </div>
-                  </div>
-                ))}
+              {/* Back to signin */}
+              <div className="pt-2 border-t border-stone-800 text-center">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('signin')}
+                  className="text-xs text-stone-400 hover:text-emerald-400 transition-colors"
+                >
+                  لديك حساب بالفعل؟ <span className="text-emerald-400 font-bold underline mr-1">تسجيل الدخول</span>
+                </button>
               </div>
-            </div>
+            </form>
           )}
         </div>
       </div>
-
-      {/* Forgot Password Modal */}
-      {showForgotModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-sm w-full rounded-3xl bg-[#141824] border border-white/10 p-6 shadow-2xl text-center space-y-4">
-            <h3 className="font-extrabold text-white text-base">استعادة كلمة المرور عبر SMS</h3>
-            <p className="text-xs text-stone-400">
-              أدخل رقم هاتفك الجزائري لاستلام رمز تحقق فوري مكون من 4 أرقام.
-            </p>
-
-            {!otpSent ? (
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  value={forgotPhone}
-                  onChange={e => setForgotPhone(e.target.value)}
-                  placeholder="0551 23 98 76"
-                  dir="ltr"
-                  className="w-full px-4 py-2.5 rounded-2xl bg-[#1a1f2e] border border-white/10 text-xs text-white text-center font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (forgotPhone.length >= 8) {
-                      setOtpSent(true);
-                    } else {
-                      alert('يرجى إدخال رقم هاتف صحيح.');
-                    }
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
-                >
-                  إرسال رمز التحقق
-                </button>
-              </div>
-            ) : !otpSuccess ? (
-              <div className="space-y-3">
-                <p className="text-xs text-emerald-400 font-bold">
-                  ✓ تم إرسال الرمز (9042) إلى {forgotPhone}
-                </p>
-                <input
-                  type="text"
-                  value={enteredOtp}
-                  onChange={e => setEnteredOtp(e.target.value)}
-                  placeholder="أدخل الرمز 9042"
-                  className="w-full px-4 py-2.5 rounded-2xl bg-[#1a1f2e] border border-white/10 text-sm text-white text-center font-mono tracking-widest"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (enteredOtp === '9042' || enteredOtp.length === 4) {
-                      setOtpSuccess(true);
-                    } else {
-                      alert('الرمز الصحيح للتجربة هو 9042');
-                    }
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
-                >
-                  تأكيد الرمز
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-xs text-emerald-400 font-bold">
-                  ✓ تم التحقق بنجاح! كلمة المرور المؤقتة هي: Athar2026
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowForgotModal(false);
-                    setOtpSent(false);
-                    setOtpSuccess(false);
-                  }}
-                  className="w-full py-2.5 rounded-xl bg-white/10 text-white font-bold text-xs"
-                >
-                  العودة لتسجيل الدخول
-                </button>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => {
-                setShowForgotModal(false);
-                setOtpSent(false);
-              }}
-              className="text-xs text-stone-500 hover:text-stone-300"
-            >
-              إلغاء
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

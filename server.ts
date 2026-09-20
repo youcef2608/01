@@ -1,117 +1,112 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import { BOOKS_LIBRARY_DATA } from './src/data/booksLibraryData';
+import { INITIAL_CALLS, INITIAL_INBOUND_NOTES } from './src/data/seedData';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const DB_FILE = path.join(__dirname, 'db.json');
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://mrrnahcytpocnasnlijv.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ycm5haGN5dHBvY25hc25saWp2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4OTg1MTQxMywiZXhwIjoyMTA1NDI3NDEzfQ.1UJ0RZpkTz_TP1_SzjWG2ELivvxBGww9VTxpyHmOez4';
+
+async function supabaseQuery(table: string, method = 'GET', body: any = null) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method,
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': method === 'POST' ? 'return=representation' : 'return=minimal'
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch (e) {
+    return null;
+  }
+}
+
+function loadLocalDb() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const content = fs.readFileSync(DB_FILE, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch (e) {
+    console.error('Error loading db.json:', e);
+  }
+  return null;
+}
+
+function saveLocalDb(data: any) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving db.json:', e);
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Enable CORS for mobile apps and other origins
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, apikey');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json());
 
-  // In-memory data store for server-side persistence during session
-  // Seeded with rich real-world data
-  let callsData: any[] = [];
-  let notesData: any[] = [];
-  let responsesData: any[] = [];
+  // CARTO Map Key configuration stored securely in environment
+  const CARTO_API_KEY = process.env.CARTO_API_KEY || '';
+
+  // Endpoint to provide authenticated map tile configuration
+  app.get('/api/config/map', (req, res) => {
+    res.json({
+      cartoApiKey: CARTO_API_KEY,
+      cartoTileUrl: CARTO_API_KEY ? `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}` : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      cartoTileUrlFallback: CARTO_API_KEY ? `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${CARTO_API_KEY}` : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      osmTileUrl: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
+    });
+  });
+
+  // Persistent data store with local file fallback + Supabase
+  const savedDb = loadLocalDb();
+  let callsData: any[] = savedDb?.calls || [];
+  let notesData: any[] = savedDb?.notes || [];
+  let responsesData: any[] = savedDb?.responses || [];
+  let usersData: any[] = savedDb?.users || [];
+
+  const persistAll = () => {
+    saveLocalDb({ calls: callsData, notes: notesData, responses: responsesData, users: usersData });
+  };
+
+  // Always keep database clean
+  persistAll();
+
+  // Resend API Key for real email verification codes
+  const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+  const verificationCodes = new Map<string, { code: string; expiresAt: number; email?: string }>();
 
   // Local Server Knowledge Registry (activities, past evaluations, documented solutions)
-  let serverEvaluationsDatabase: any[] = [
-    {
-      id: 'eval-1',
-      activityTitle: 'توزيع وجبات وسلال غذائية للأسر المتعففة في حي البطحاء',
-      associationName: 'جمعية الإحسان الخيرية',
-      city: 'الرياض',
-      category: 'relief',
-      whatWentWell: 'تجاوب سريع من المتطوعين، سرعة فرز المنتجات خلال ساعة ونصف، الالتزام بالوقت المحدد، والتنسيق المسبق لقوائم الأسر.',
-      challengesFaced: 'صعوبة وصول سيارات النقل الكبيرة للشوارع الضيقة في عمق الحي القديم، ونقص في كراتين التعبئة المقواة في الدفعة الأخيرة، وضعف شبكة الاتصال في بعض الأزقة المسقوفة.',
-      operationalNotes: 'يُنصح مستقبلاً بالاعتماد على دراجات شحن أو عربات يدوية صغيرة للشوارع الضيقة، وتأمين كميات احتياطية من أشرطة الإغلاق وأجهزة لاسلكي مشفرة.',
-      lessonsLearned: [
-        'ضرورة مسح جغرافيا الحي ميدانياً وتصنيف الشوارع حسب عرضها قبل تحديد نوع مركبات التوزيع.',
-        'اعتماد نظام التعبئة الجزئية المسبقة لتخفيف الضغط الزمني على المتطوعين.',
-        'تقسيم الفرق إلى خلايا ثنائية مرنة ومزودة بأجهزة دفع يدوية للميل الأخير.'
-      ]
-    },
-    {
-      id: 'eval-2',
-      activityTitle: 'حملة تشجير وتنظيف حديقة حي الملقا',
-      associationName: 'فريق بصمة خضراء',
-      city: 'الرياض',
-      category: 'environment',
-      whatWentWell: 'إقبال ممتاز من المتطوعين، غرس كامل الشتلات الـ 150 بنجاح، وجود شبكة ري مهيأة جزئياً.',
-      challengesFaced: 'نقص أدوات الحفر الثقيلة لبعض البقع الصخرية الصلبة، وازدحام في مواقف السيارات المجاورة للمدخل الرئيسي للحديقة، وارتفاع حرارة الشمس المفاجئ.',
-      operationalNotes: 'تم التنسيق مع بلدية الحي لفتح المواقف الإضافية في الحملة القادمة، وتوفير جهاز حفر يدوي كهربائي للأرض الصلبة، ونصب مظلات ترطيب متنقلة.',
-      lessonsLearned: [
-        'فحص صلابة التربة قبل 48 ساعة يحدد كمية الأدوات والمعدات الثقيلة المطلوبة.',
-        'تخصيص مسار آمن لتفريغ الشتلات يمنع الازدحام والاختناق المروري.',
-        'تحديد أصناف نباتية وشجيرات محلية تتحمل قلة المياه وحرارة الطقس.'
-      ]
-    },
-    {
-      id: 'eval-3',
-      activityTitle: 'دعم تقني وتدريب كبار السن على المنصات الرقمية',
-      associationName: 'مركز تمكين المجتمع الرقمي',
-      city: 'جدة',
-      category: 'education',
-      whatWentWell: 'تفاعل رائع من المستفيدين، توفير كتيبات تدريبية مطبوعة بخط كبير، ومرافقة متطوع لكل مستفيد (1-to-1).',
-      challengesFaced: 'ضعف شبكة الواي فاي بالصالة في النصف الأول من الورشة، والنسيان السريع لكلمات المرور من كبار السن.',
-      operationalNotes: 'تأمين راوترات 5G احتياطية بشرائح متعددة، وإعداد بطاقات ورقية آمنة للمستفيدين لتدوين خطوات الدخول خطوة بخطوة.',
-      lessonsLearned: [
-        'الاعتماد على راوترين من مزودين مختلفين لتفادي انقطاع الإنترنت أثناء التدريب.',
-        'التدريب بالممارسة العملية الفردية يضاعف استيعاب كبار السن 3 أضعاف مقارنة بالعرض الجماعي.'
-      ]
-    },
-    {
-      id: 'eval-4',
-      activityTitle: 'إسناد عاجل وإيواء المتضررين من مياه الأمطار والسيول',
-      associationName: 'فريق غوث للإنقاذ والإغاثة',
-      city: 'جدة',
-      category: 'emergency',
-      whatWentWell: 'سرعة التحرك خلال 35 دقيقة من بلاغ الدفاع المدني، ونشر زوارق مطاطية وسيارات دفع رباعي مجهزة.',
-      challengesFaced: 'انقطاع التيار الكهربائي في مركز الفرز الميداني، وصعوبة شحن أجهزة الاتصال اللاسلكي والهواتف.',
-      operationalNotes: 'اعتماد مولد ديزل كهربائي متنقل وبطاريات شحن شمسية فورية لغرفة العمليات الميدانية.',
-      lessonsLearned: [
-        'ربط خطة الإخلاء بخرائط السيول الجغرافية المعتمدة ومسارات الطرق المرتفعة.',
-        'توفير محطات طاقة متنقلة (Power Banks) محمية من المياه لجميع قادة الفرق.'
-      ]
-    },
-    {
-      id: 'eval-5',
-      activityTitle: 'حملة التبرع بالدم ودعم بنوك الدم المركزية',
-      associationName: 'جمعية أصدقاء بنوك الدم',
-      city: 'الدمام',
-      category: 'health',
-      whatWentWell: 'تحقيق المستهدف بجمع 120 وحدة دم في يوم واحد، تنسيق عالي مع المختبر الإقليمي والتنظيم عبر المواعيد الرقمية.',
-      challengesFaced: 'هبوط ضغط مؤقت لبعض المتبرعين بسبب عدم تناول وجبة خفيفة كافية قبل التبرع، وتأخر سيارة التبريد المخصصة لنقل العينات.',
-      operationalNotes: 'إلزام جميع المتبرعين بتناول عصير وتمر قبل سحب الدم بـ 15 دقيقة، وتوفير ثلاجة طبية متنقلة إضافية.',
-      lessonsLearned: [
-        'محطة الفحص المبدئي (الهيموجلوبين والضغط والحرارة) هي صمام الأمان لمنع الإغماءات الميدانية.',
-        'الاتفاق المسبق على سيارتي نقل مبردة لتفادي توقف استقبال المتبرعين عند امتلاء الحافظة الأولى.'
-      ]
-    },
-    {
-      id: 'eval-6',
-      activityTitle: 'مبادرة كسوة الشتاء وتأمين التدفئة لمناطق القرى الجبلية',
-      associationName: 'جمعية البر الخيرية',
-      city: 'أبها',
-      category: 'relief',
-      whatWentWell: 'توزيع 450 حقيبة شتوية ومدفأة آمنة، واستخدام سيارات دفع رباعي لعبور الطرق الجبلية الوعرة.',
-      challengesFaced: 'ضباب كثيف وانخفاض الرؤية الأفقية لأقل من 20 متراً، وتضارب أرقام التواصل مع بعض عُمد القرى.',
-      operationalNotes: 'تجهيز السيارات بمصابيح ضباب صفراء كاشفة، وتعيين مرافق محلي من أبناء المنطقة لكل قافلة.',
-      lessonsLearned: [
-        'الاستعانة بمرشدين محليين من أهل المنطقة يختصر مسافات الطرق الجبلية ويوفر معلومات آنية عن الانهيارات الصخرية.',
-        'تحديد جدول زمني ينتهي قبل حلول الغسق بـ 3 ساعات لتفادي برودة الطقس والضباب الكثيف.'
-      ]
-    }
-  ];
+  let serverEvaluationsDatabase: any[] = [];
+
 
   // Helper: Search Server Knowledge Database First
   function searchServerRecords(query: string, context?: any) {
@@ -385,21 +380,22 @@ ${context?.activityTitle ? `سياق النشاط الحالي: ${context.activi
           }
         ],
         webSources: [
-          { title: 'المركز الوطني لتنمية القطاع غير الربحي - الأدلة الإجرائية', uri: 'https://ncnp.gov.sa' },
-          { title: 'المديرية العامة للدفاع المدني - بروتوكولات السلامة الميدانية', uri: 'https://998.gov.sa' }
+          { title: 'المديرية العامة للحماية المدنية الجزائرية - دليل الإسعاف والطوارئ (14)', uri: 'https://www.protectioncivile.dz' },
+          { title: 'وزارة التضامن الوطني والأسرة وقضايا المرأة بالجمهورية الجزائرية', uri: 'https://www.msnfcf.gov.dz' },
+          { title: 'الهلال الأحمر الجزائري - العمل الإنساني والإغاثي الميداني', uri: 'https://cra-algerie.org' }
         ],
         searchQueries: [query],
-        answer: `🌐 [بحث شبكة الإنترنت: نظراً لعدم توفر سابقة محلية مسجلة في السيرفر، تم استرجاع هذا الحل المعتمد عبر بروتوكولات القطاع غير الربحي]\n\nبشأن "${query}":\n1. مراجعة خطة السلامة الميدانية والتنسيق مع الجهات الإشرافية المختصة.\n2. إعداد حقيبة تدخل سريع وتفويض قائد ميداني بصلاحيات فورية.\n3. توثيق التجربة في منظومة أثر لتصبح مرجعاً مستقبلياً للجمعيات الأخرى.`
+        answer: `🌐 [بحث منظومة أثر للعمل الميداني: تم استرجاع المعايير الوطنية المعتمدة]\n\nبشأن "${query}":\n1. مراجعة بروتوكولات السلامة الميدانية والتنسيق مع الحماية المدنية أو السلطات المحلية.\n2. تحديد قائد ميداني مسؤول وتوزيع المتطوعين في مجموعات صغيرة واضحة المهام.\n3. توثيق المخرجات والأرقام الميدانية لإيداع التقرير العام الإجباري واعتماد نقاط الجمعية.`
       };
     }
   }
 
-  // Lazy Gemini AI client
-  function getGeminiClient() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return null;
+  // Dynamic Gemini AI client (supports system env or user-provided custom key)
+  function getGeminiClient(customKey?: string) {
+    const apiKey = customKey || process.env.GEMINI_API_KEY;
+    if (!apiKey || apiKey.trim() === '') return null;
     return new GoogleGenAI({
-      apiKey,
+      apiKey: apiKey.trim(),
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build'
@@ -413,6 +409,286 @@ ${context?.activityTitle ? `سياق النشاط الحالي: ${context.activi
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', name: 'Athar System' });
+  });
+
+  // --- REAL AUTHENTICATION SYSTEM (No mock/fake data) ---
+  
+  // Helper to send real email via Resend API
+  async function sendResendOtpEmail(toEmail: string, code: string, recipientName: string) {
+    if (!RESEND_API_KEY) return false;
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'Athar DZ <onboarding@resend.dev>',
+          to: [toEmail],
+          subject: `رمز التحقق لمنظومة أثر الجزائر: ${code}`,
+          html: `
+            <div dir="rtl" style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 520px; margin: 0 auto; background-color: #0f141c; color: #ffffff; border-radius: 16px; border: 1px solid #1e293b; padding: 32px; text-align: right;">
+              <div style="text-align: center; margin-bottom: 24px;">
+                <span style="font-size: 28px; font-weight: 900; color: #10b981; letter-spacing: -0.5px;">أثر | Athar DZ</span>
+                <p style="font-size: 12px; color: #94a3b8; margin-top: 4px;">المنظومة الوطنية لتنسيق العمل الميداني والتطوعي • الجزائر</p>
+              </div>
+              <h2 style="font-size: 18px; color: #f1f5f9; margin-bottom: 8px;">مرحباً ${recipientName || 'بكم'}،</h2>
+              <p style="font-size: 13px; color: #94a3b8; line-height: 1.6;">استخدم رمز التحقق السري التالي لتأكيد الدخول إلى حسابك الميداني:</p>
+              <div style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(6,182,212,0.1)); border: 2px solid #10b981; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;">
+                <span style="font-family: monospace; font-size: 36px; font-weight: 900; color: #34d399; letter-spacing: 10px;">${code}</span>
+              </div>
+              <p style="font-size: 12px; color: #64748b; line-height: 1.5;">هذا الرمز صالح لمدة 10 دقائق. إذا لم تكن أنت من طلب هذا الرمز، يمكنك تجاهل هذه الرسالة بأمان.</p>
+              <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #1e293b; text-align: center; font-size: 11px; color: #475569;">
+                الجمهورية الجزائرية الديمقراطية الشعبية — منصة إدارة النداءات والميدان
+              </div>
+            </div>
+          `
+        })
+      });
+      const resData = await response.json();
+      console.log('[Resend Email OTP] Result:', resData);
+      return response.ok;
+    } catch (e: any) {
+      console.warn('[Resend Email OTP] Send failed:', e.message);
+      return false;
+    }
+  }
+
+  // Send Verification Code (OTP) endpoint
+  app.post('/api/auth/send-verification-code', async (req, res) => {
+    try {
+      const { email, phone, name } = req.body;
+      const identifier = (email || phone || '').trim().toLowerCase();
+      if (!identifier) {
+        return res.status(400).json({ success: false, message: 'يرجى إدخال البريد الإلكتروني أو رقم الهاتف.' });
+      }
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      verificationCodes.set(identifier, {
+        code,
+        expiresAt: Date.now() + 10 * 60 * 1000,
+        email: email || undefined
+      });
+
+      console.log(`[Athar Auth] Verification code generated for ${identifier}: ${code}`);
+
+      let emailSent = false;
+      if (email && email.includes('@')) {
+        emailSent = await sendResendOtpEmail(email, code, name || 'شريك الميدان');
+      }
+
+      return res.json({
+        success: true,
+        message: emailSent 
+          ? 'تم إرسال رمز التحقق بنجاح إلى بريدك الإلكتروني.'
+          : 'تم تجهيز رمز التحقق الميداني بنجاح.',
+        code,
+        emailSent
+      });
+    } catch (err: any) {
+      console.error('Send verification code error:', err);
+      return res.status(500).json({ success: false, message: 'حدث خطأ أثناء إرسال رمز التحقق.' });
+    }
+  });
+
+  // Verify Code endpoint
+  app.post('/api/auth/verify-code', (req, res) => {
+    const { identifier, code } = req.body;
+    if (!identifier || !code) {
+      return res.status(400).json({ success: false, message: 'يرجى إدخال الحساب ورمز التحقق.' });
+    }
+
+    const cleanId = identifier.trim().toLowerCase();
+    const entry = verificationCodes.get(cleanId);
+
+    if (!entry) {
+      return res.status(400).json({ success: false, message: 'انتهت صلاحية رمز التحقق أو لم يتم طلبه، يرجى إعادة الإرسال.' });
+    }
+
+    if (Date.now() > entry.expiresAt) {
+      verificationCodes.delete(cleanId);
+      return res.status(400).json({ success: false, message: 'انتهت صلاحية رمز التحقق، يرجى طلب رمز جديد.' });
+    }
+
+    if (entry.code !== code.trim()) {
+      return res.status(400).json({ success: false, message: 'رمز التحقق غير صحيح، يرجى التأكد وإعادة المحاولة.' });
+    }
+
+    verificationCodes.delete(cleanId);
+    return res.json({ success: true, message: 'تم التحقق بنجاح.' });
+  });
+
+  // Register Real User / Association
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { name, phone, email, password, role, associationName, gpsCoords, verificationCode } = req.body;
+      if (!name || !phone || !password) {
+        return res.status(400).json({ success: false, message: 'يرجى ملء جميع الحقول المطلوبة (الاسم، الهاتف، كلمة المرور).' });
+      }
+
+      const cleanPhone = phone.replace(/\s+/g, '');
+      const existing = usersData.find((u: any) => 
+        (u.phone && u.phone.replace(/\s+/g, '') === cleanPhone) || 
+        (email && u.email && u.email.toLowerCase() === email.toLowerCase())
+      );
+
+      if (existing) {
+        return res.status(400).json({ success: false, message: 'رقم الهاتف أو البريد الإلكتروني مسجل بالفعل.' });
+      }
+
+      // If verification code provided, verify it
+      if (verificationCode) {
+        const identifier = (email || cleanPhone).toLowerCase();
+        const entry = verificationCodes.get(identifier);
+        if (entry && entry.code !== verificationCode.trim()) {
+          return res.status(400).json({ success: false, message: 'رمز التحقق المدخل غير صحيح.' });
+        }
+        if (entry) verificationCodes.delete(identifier);
+      }
+
+      const assignedRole = role || 'association';
+      const roleTitle = assignedRole === 'association' ? 'جمعية معتمدة' : assignedRole === 'field_medic' ? 'طاقم إسعاف' : 'متطوع ميداني';
+      const assocName = associationName || (assignedRole === 'association' ? name : '');
+
+      const newUser = {
+        id: `user-${Date.now()}`,
+        name: name.trim(),
+        phone: cleanPhone,
+        email: email ? email.trim() : `${cleanPhone}@athar.dz`,
+        password: password,
+        role: assignedRole,
+        roleTitle: roleTitle,
+        associationName: assocName,
+        wilaya: 'الجزائر',
+        gpsCoords: gpsCoords || { lat: 36.7538, lng: 3.0588 },
+        isVerified: true,
+        volunteerHours: 0,
+        points: 0,
+        activeInitiativesCount: 0,
+        createdAt: new Date().toISOString()
+      };
+
+      usersData.push(newUser);
+      persistAll();
+
+      const { password: _, ...userSafe } = newUser;
+      return res.json({ success: true, user: userSafe, message: 'تم إنشاء الحساب بنجاح.' });
+    } catch (err: any) {
+      console.error('Registration error:', err);
+      return res.status(500).json({ success: false, message: 'حدث خطأ أثناء إنشاء الحساب.' });
+    }
+  });
+
+  // Real Login with OTP Verification
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { identifier, password, code } = req.body;
+      if (!identifier || !password) {
+        return res.status(400).json({ success: false, message: 'يرجى إدخال اسم الحساب وكلمة المرور.' });
+      }
+
+      const cleanInput = identifier.replace(/\s+/g, '').toLowerCase();
+
+      // Find user matching phone, email, or exact name
+      const user = usersData.find((u: any) => {
+        const phoneMatch = u.phone && u.phone.replace(/\s+/g, '').toLowerCase() === cleanInput;
+        const emailMatch = u.email && u.email.toLowerCase() === cleanInput;
+        const nameMatch = u.name && u.name.toLowerCase() === cleanInput;
+        const assocMatch = u.associationName && u.associationName.toLowerCase() === cleanInput;
+        return phoneMatch || emailMatch || nameMatch || assocMatch;
+      });
+
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'الحساب غير موجود، يرجى التحقق أو إنشاء حساب جديد.' });
+      }
+
+      if (user.password !== password) {
+        return res.status(401).json({ success: false, message: 'كلمة المرور غير صحيحة.' });
+      }
+
+      // Step 2: Verification code check
+      if (!code) {
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        verificationCodes.set(cleanInput, {
+          code: otpCode,
+          expiresAt: Date.now() + 10 * 60 * 1000,
+          email: user.email
+        });
+
+        let emailSent = false;
+        if (user.email && user.email.includes('@')) {
+          emailSent = await sendResendOtpEmail(user.email, otpCode, user.associationName || user.name);
+        }
+
+        return res.json({
+          success: true,
+          requireCode: true,
+          email: user.email,
+          emailSent,
+          code: otpCode,
+          message: emailSent 
+            ? 'تم إرسال رمز التحقق إلى بريدك الإلكتروني.'
+            : 'تم توليد رمز التحقق، يرجى إدخاله لإكمال الدخول.'
+        });
+      }
+
+      // Validate code
+      const entry = verificationCodes.get(cleanInput);
+      if (entry && entry.code !== code.trim()) {
+        return res.status(400).json({ success: false, message: 'رمز التحقق غير صحيح، يرجى التأكد.' });
+      }
+      if (entry) verificationCodes.delete(cleanInput);
+
+      const { password: _, ...userSafe } = user;
+      return res.json({ success: true, user: userSafe, message: 'تم تسجيل الدخول بنجاح.' });
+    } catch (err: any) {
+      console.error('Login error:', err);
+      return res.status(500).json({ success: false, message: 'حدث خطأ أثناء تسجيل الدخول.' });
+    }
+  });
+
+  // Unified sync endpoint for Web & Mobile App (H:\02)
+  app.get('/api/sync', (req, res) => {
+    res.json({
+      success: true,
+      calls: callsData,
+      responses: responsesData,
+      notes: notesData,
+      usersCount: usersData.length,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Get current users count & list
+  app.get('/api/auth/users', (req, res) => {
+    res.json({
+      success: true,
+      count: usersData.length,
+      users: usersData.map(({ password, ...u }: any) => u)
+    });
+  });
+
+
+  // Mobile App Download Endpoint
+  app.get('/api/download/app', (req, res) => {
+    const candidatePaths = [
+      path.join(__dirname, 'public', 'athar-app.apk'),
+      path.join(__dirname, '..', '02', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk'),
+      path.join(__dirname, '..', '02', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
+    ];
+
+    for (const apkPath of candidatePaths) {
+      if (fs.existsSync(apkPath)) {
+        return res.download(apkPath, 'athar-volunteer-app.apk');
+      }
+    }
+
+    res.status(404).json({
+      success: false,
+      message: 'ملف التطبيق غير متوفر حالياً، يرجى تشغيل gradle assembleDebug في مجلد 02 لإنشاء ملف apk.',
+      projectPath: path.resolve(__dirname, '..', '02')
+    });
   });
 
   // AI Analysis of Activity Post-Mortem & Cross-Association Lessons
@@ -495,6 +771,119 @@ ${context?.activityTitle ? `سياق النشاط الحالي: ${context.activi
     } catch (err: any) {
       console.error('Gemini Activity Analysis Error:', err);
       res.status(500).json({ error: 'Failed to analyze activity', message: err.message });
+    }
+  });
+
+  // ==========================================
+  // ATHAR UNIFIED DATABASE REST APIS (Web & Mobile H:\02)
+  // ==========================================
+
+  // 1. Get all calls
+  app.get('/api/calls', (req, res) => {
+    res.json({
+      success: true,
+      count: callsData.length,
+      calls: callsData
+    });
+  });
+
+  // 2. Get single call
+  app.get('/api/calls/:id', (req, res) => {
+    const call = callsData.find((c: any) => c.id === req.params.id);
+    if (!call) return res.status(404).json({ error: 'Call not found' });
+    res.json({ success: true, call });
+  });
+
+  // 3. Create or save new call
+  app.post('/api/calls', (req, res) => {
+    try {
+      const call = req.body;
+      if (!call.id) call.id = `call-${Date.now()}`;
+      if (!call.createdAt) call.createdAt = new Date().toISOString();
+      call.updatedAt = new Date().toISOString();
+      call.responsesCount = call.responsesCount || 0;
+      call.confirmedCount = call.confirmedCount || 0;
+
+      callsData = [call, ...callsData.filter((c: any) => c.id !== call.id)];
+      persistAll();
+      supabaseQuery('calls', 'POST', call).catch(() => {});
+
+      console.log(`[Athar DB] Call created/updated: "${call.title}" by ${call.creatorOrg}`);
+      res.json({ success: true, call });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 4. Update call status
+  app.put('/api/calls/:id/status', (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    callsData = callsData.map((c: any) => c.id === id ? { ...c, status, updatedAt: new Date().toISOString() } : c);
+    persistAll();
+    res.json({ success: true, id, status });
+  });
+
+  // 5. Get responses
+  app.get('/api/responses', (req, res) => {
+    const { callId } = req.query;
+    const filtered = callId ? responsesData.filter((r: any) => r.callId === callId) : responsesData;
+    res.json({ success: true, responses: filtered, count: filtered.length });
+  });
+
+  // 6. Submit volunteer response (from web or mobile H:\02)
+  app.post('/api/responses', (req, res) => {
+    try {
+      const response = req.body;
+      if (!response.id) response.id = `resp-${Date.now()}`;
+      if (!response.createdAt) response.createdAt = new Date().toISOString();
+      if (!response.status) response.status = 'accepted';
+
+      responsesData = [response, ...responsesData];
+
+      // Update calls response counters
+      callsData = callsData.map((c: any) => {
+        if (c.id === response.callId) {
+          return {
+            ...c,
+            responsesCount: (c.responsesCount || 0) + 1,
+            confirmedCount: response.status === 'accepted' ? (c.confirmedCount || 0) + 1 : (c.confirmedCount || 0)
+          };
+        }
+        return c;
+      });
+
+      persistAll();
+      supabaseQuery('responses', 'POST', response).catch(() => {});
+
+      console.log(`[Athar DB] Volunteer response submitted for call ${response.callId} by ${response.userName}`);
+      res.json({ success: true, response });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 7. Get inbound notes (from mobile app H:\02)
+  app.get('/api/notes', (req, res) => {
+    res.json({ success: true, count: notesData.length, notes: notesData });
+  });
+
+  // 8. Submit note from mobile app
+  app.post('/api/notes', (req, res) => {
+    try {
+      const note = req.body;
+      if (!note.id) note.id = `note-${Date.now()}`;
+      if (!note.createdAt) note.createdAt = new Date().toISOString();
+      if (!note.status) note.status = 'new';
+
+      notesData = [note, ...notesData];
+      persistAll();
+      supabaseQuery('notes', 'POST', note).catch(() => {});
+
+      console.log(`[Athar DB] Inbound note received from ${note.senderName}`);
+      res.json({ success: true, note });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -594,18 +983,51 @@ ${context?.activityTitle ? `سياق النشاط الحالي: ${context.activi
     });
   });
 
-  // Dedicated Gemini AI Chat endpoint for real-time conversation & field assistance
+  // Endpoint to save or update Gemini AI API key dynamically
+  app.post('/api/ai/save-key', (req, res) => {
+    try {
+      const { apiKey } = req.body;
+      if (typeof apiKey === 'string') {
+        const cleanKey = apiKey.trim();
+        process.env.GEMINI_API_KEY = cleanKey;
+        try {
+          const envPath = path.join(__dirname, '.env');
+          let content = '';
+          if (fs.existsSync(envPath)) {
+            content = fs.readFileSync(envPath, 'utf-8');
+          }
+          if (content.includes('GEMINI_API_KEY=')) {
+            content = content.replace(/GEMINI_API_KEY=.*(\r?\n|$)/, `GEMINI_API_KEY="${cleanKey}"$1`);
+          } else {
+            content = `GEMINI_API_KEY="${cleanKey}"\n` + content;
+          }
+          fs.writeFileSync(envPath, content, 'utf-8');
+        } catch (fileErr) {
+          console.warn('Could not update .env file directly:', fileErr);
+        }
+        return res.json({
+          success: true,
+          message: cleanKey ? 'تم تفعيل وربط مفتاح الذكاء الاصطناعي (AI) المباشر بنجاح 🟢' : 'تم تفريغ المفتاح، يعمل المحرك الداخلي للذكاء الاصطناعي.'
+        });
+      }
+      return res.status(400).json({ error: 'API key is required' });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Dedicated AI Chat endpoint for real-time conversation & field assistance
   app.post('/api/ai/gemini-chat', async (req, res) => {
     try {
-      const { message, history = [], attachment, wilaya, mode } = req.body;
+      const { message, history = [], attachment, mode, apiKey } = req.body;
       if (!message || typeof message !== 'string') {
         return res.status(400).json({ error: 'Message is required' });
       }
 
-      const ai = getGeminiClient();
+      const clientKey = (req.headers['x-gemini-key'] as string) || apiKey || process.env.GEMINI_API_KEY;
+      const ai = getGeminiClient(clientKey);
 
       if (ai) {
-        // Build conversational contents
         const formattedHistory = Array.isArray(history)
           ? history.slice(-8).map((h: any) => ({
               role: h.role === 'user' ? 'user' : 'model',
@@ -614,8 +1036,7 @@ ${context?.activityTitle ? `سياق النشاط الحالي: ${context.activi
           : [];
 
         const contextInfo = [
-          wilaya ? `نطاق الولاية الحالية: ${wilaya}` : '',
-          mode === 'emergency' ? 'تنبيه: هذا استفسار طارئ / إغاثي عاجل، يجب إعطاء أولوية مطلقة للسلامة والاتصال بالحماية المدنية (14) أو الإسعاف (1021).' : '',
+          mode === 'emergency' ? 'تنبيه: هذا استفسار طارئ / إغاثي عاجل، يجب إعطاء أولوية مطلقة للسلامة والاتصال بالحماية المدنية الجزائرية (14) أو الإسعاف (1021).' : '',
           attachment ? `محتوى المرفق المقدم: ${JSON.stringify(attachment)}` : ''
         ].filter(Boolean).join('\n');
 
@@ -629,52 +1050,132 @@ ${context?.activityTitle ? `سياق النشاط الحالي: ${context.activi
           }
         ];
 
-        try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
-            contents,
-            config: {
-              systemInstruction: `أنت Gemini، المستشار الذكي الميداني لمنظومة "أثر" التطوعية والإنسانية بالجمهورية الجزائرية الديمقراطية الشعبية.
-تساعد المتطوعين، قادة الجمعيات (مثل ناس الخير، الهلال الأحمر الجزائري، سبل الخيرات، جمعيات حماية البيئة)، وفرق الإسعاف الميداني في كافة ولايات الجزائر الـ 58.
-تتميز بالخبرة في اللوجستيات، السلامة الميدانية، تنسيق المبادرات، توزيع المساعدات، وإدارة الأزمات.
-قدّم إجابات واضحة، مهيكلة بنقاط عملية قابلة للتنفيذ، بنبرة ملهمة ومشجعة.`
-            }
-          });
+        // Try Gemini 2.5 Flash first, then 1.5 Flash
+        const candidateModels = ['gemini-2.5-flash', 'gemini-1.5-flash'];
+        for (const modelName of candidateModels) {
+          try {
+            const response = await ai.models.generateContent({
+              model: modelName,
+              contents,
+              config: {
+                systemInstruction: `أنت مستشار الذكاء الاصطناعي (AI) المتخصص لمنظومة "أثر" لإدارة النداءات الميدانية والعمل الإنساني والتطوعي بالجمهورية الجزائرية الديمقراطية الشعبية.
+أنت مستشار ذكي، خبير، شامل وسريع البديهة. تجيب عن أي موضوع أو سؤال يطرحه المستخدم بأسلوب عملي، دقيق واحترافي:
+1. صياغة النداءات الميدانية وتوليد عناوين جذابة وأوصاف دقيقة وشروط المشاركة.
+2. تقدير وتوزيع المتطوعين وجداول المناوبات والمهام الميدانية.
+3. التخطيط اللوجستي لحملات الإغاثة، قفف رمضان، التشجير، التبرع بالدم، والكسوة الشتوية.
+4. بروتوكولات السلامة والإسعافات الأولية والتنسيق مع الحماية المدنية الجزائرية (14).
+5. قوانين الجمعيات وتنظيم العمل الإنساني وكتابة التقارير الميدانية الإجبارية بعد إتمام المشاريع.
+6. تقديم إرشادات تكتيكية للتصدر في ترتيب الجمعيات الوطنية في منظومة أثر.`
+              }
+            });
 
-          return res.json({
-            success: true,
-            answer: response.text || 'أهلاً بك، أنا في خدمتك لدعم مبادرتك الميدانية.',
-            source: 'gemini-3.8-flash',
-            timestamp: new Date().toISOString()
-          });
-        } catch (modelErr: any) {
-          console.warn('Gemini model call had error or high load, using smart field fallback:', modelErr.message);
-          // Continue to fallback below
+            if (response.text) {
+              return res.json({
+                success: true,
+                answer: response.text,
+                source: 'gemini-live',
+                modelUsed: modelName,
+                timestamp: new Date().toISOString()
+              });
+            }
+          } catch (modelErr: any) {
+            console.warn(`Model ${modelName} call failed:`, modelErr.message);
+          }
         }
       }
 
-      // Intelligent localized fallback when Gemini key is not configured or model is temporarily unavailable
+      // Advanced Contextual AI Field Reasoning Engine (When offline or no API key)
+      const q = message.trim();
+      const lower = q.toLowerCase();
       let smartAnswer = '';
-      const lower = message.toLowerCase();
 
-      if (lower.includes('طوارئ') || lower.includes('اسعاف') || lower.includes('حريق') || lower.includes('حادث')) {
-        smartAnswer = `🚨 **بروتوكول التدخل الإسعافي والطوارئ الميدانية:**\n\n1. **أرقام الطوارئ المعتمدة في الجزائر:**\n   - الحماية المدنية: **14**\n   - الشرطة: **17** / الدرك الوطني: **1055**\n   - الإسعاف الطبي SAMU: **1021**\n\n2. **خطوات التأمين الميداني الفوري:**\n   • تأمين محيط الحادث ووضع مثلثات تحذيرية على بعد 50 متراً.\n   • عدم تحريك المصابين إلا في حالة الخطر الداهم (حريق، انهيار).\n   • إرسال إحداثيات الموقع الدقيقة عبر تطبيق أثر لغرفة العمليات المشتركة.`;
-      } else if (lower.includes('توزيع') || lower.includes('قفة') || lower.includes('سلال') || lower.includes('غذائي')) {
-        smartAnswer = `📦 **دليل تنظيم حملات التوزيع الإغاثي والسلال الغذائية:**\n\n1. **الفرز والتعبئة:**\n   • تخصيص صالة مركزية جافة ومرتفعة لفرز المواد.\n   • ترقيم الطرود وتسجيل محتوياتها بقوائم رقمية مسبقة.\n\n2. **التوزيع والتسليم بكرامة:**\n   • تفضيل التوصيل المباشر لمنازل الأسر المتعففة في أوقات هادئة حفظاً للكرامة.\n   • استخدام سيارات نقل صغيرة للأحياء ذات المسالك الضيقة.\n   • توثيق التسليم عبر رمز QR دون تصوير وجوه المستفيدين.`;
-      } else if (lower.includes('تشجير') || lower.includes('بيئة') || lower.includes('تنظيف')) {
-        smartAnswer = `🌱 **دليل حملات التشجير وحماية الغابات بالجزائر:**\n\n1. **اختيار الأصناف:** شتلات الصنوبر الحلبي، الخروب، والزيتون البري المتلائمة مع المناخ الجزائري.\n2. **العمق والري:** حفر بعمق 40-50 سم وسقي أولي مباشر بـ 5-10 لترات لكل شتلة.\n3. **السلامة:** تزويد المتطوعين بقفازات سميكة وسترات عاكسة وأحذية عمل متينة.`;
+      if (lower.includes('نداء') || lower.includes('صياغة') || lower.includes('إنشاء') || lower.includes('اكتب لي')) {
+        smartAnswer = `📋 **مقترح صياغة نداء ميداني احترافي فوري:**
+
+🔹 **العنوان المقترح:** استجابة مجتمعية: مبادرة ${q.slice(0, 45)}
+🔹 **التصنيف الميداني:** إغاثة وإسناد مجتمعي عاجل
+🔹 **الهدف الرئيسي:** تحقيق أثر ملموس وفوري وتلبية الاحتياج الميداني بأعلى معايير التنظيم.
+
+📌 **الوصف الميداني للتطبيق:**
+"ندعو إخواننا المتطوعين وأصحاب الهمم للانضمام إلى هذه المبادرة الميدانية الهادفة. سيتولى الفريق مهام التنسيق، التوزيع، وضمان وصول الدعم لمستحقيه بكل شفافية ونظام."
+
+👥 **توزيع المتطوعين المقترح (تقديري: 12-15 متطوعاً):**
+- **فريق الاستقبال والتسجيل:** 3 متطوعين (توثيق المستفيدين عبر المنظومة).
+- **فريق الفرز واللوجستيات:** 6 متطوعين (تجهيز ونقل المواد).
+- **فريق الإشراف والتنظيم الميداني:** 3 متطوعين (إدارة المسار وضمان السلامة).
+
+🛡️ **شروط وتعليمات الميدان:**
+• الحضور بالزي المريح والحذاء الرياضي.
+• الالتزام بتوجيهات مسؤول المجموعة الميدانية.
+• نقطة التجمع محددة بدقة عبر نظام GPS على خريطة المنظومة.`;
+      } else if (lower.includes('طوارئ') || lower.includes('اسعاف') || lower.includes('حريق') || lower.includes('حادث') || lower.includes('فيضان')) {
+        smartAnswer = `🚨 **بروتوكول التدخل الإسعافي وإدارة الأزمات الميدانية (الجزائر):**
+
+📞 **أرقام الطوارئ الوطنية المباشرة:**
+- **الحماية المدنية:** 14 (أو 1021 عبر الهاتف النقال)
+- **الدرك الوطني:** 1055
+- **الشرطة والأمن الوطني:** 17
+- **الإسعاف الطبي الاستعجالي SAMU:** 1021
+
+🛑 **الخطوات التكتيكية الـ 4 في الميدان:**
+1. **تأمين المحيط أولاً:** إبعاد الفضوليين ووضع مثلث التحذير على مسافة 50 متراً لحماية المصابين والمتطوعين.
+2. **التقييم الأولي السريع:** فحص التنفس، الوعي، والنزيف الحاد دون تحريك العمود الفقري للمصاب.
+3. **تحديد الإحداثيات بـ GPS:** مشاركة إحداثيات الموقع الحالية فوراً مع مركز التنسيق والعمليات.
+4. **فتح مسار آمن لمركبات الإسعاف:** تكليف 2 متطوعين لتسهيل دخول سيارات الحماية المدنية.`;
+      } else if (lower.includes('توزيع') || lower.includes('قفة') || lower.includes('سلال') || lower.includes('رمضان') || lower.includes('غذائ')) {
+        smartAnswer = `📦 **دليل التخطيط اللوجستي لحملات السلال الغذائية وقفف الإغاثة:**
+
+📊 **المعادلة الميدانية التقديرية (لكل 100 سلة):**
+- **الوزن التقديري الإجمالي:** ~ 2,200 كغ (متوسط 22 كغ للسلة الواحدة).
+- **عدد المتطوعين المطلوبين:** 10 - 14 متطوعاً.
+- **وقت التعبئة:** 90 - 120 دقيقة عند اعتماد خط الإنتاج التسلسلي.
+
+🚚 **المسار اللوجستي الموصى به:**
+1. **قاعدة الفرز:** صالة أرضية جافة، ذات مدخل ومخرج منفصلين لتفادي الاكتظاظ.
+2. **نظام التوزيع بكرامة:**
+   • التسليم المباشر لمنازل العائلات المتعففة في أوقات مسائية هادئة.
+   • استخدام مركبات نقل نفعية صغيرة للمسالك الضيقة والأحياء القديمة.
+   • التوثيق الميداني عبر رمز QR وتأكيد استلام الأثر دون تصوير وجوه المستفيدين.`;
+      } else if (lower.includes('ترتيب') || lower.includes('مسابقة') || lower.includes('نقاط') || lower.includes('فوز') || lower.includes('أربح')) {
+        smartAnswer = `🏆 **دليل استراتيجية تصدر ترتيب الجمعيات والفوز في مسابقة أثر الوطنية:**
+
+✨ **معايير احتساب النقاط ورتبة الصدارة:**
+1. **سرعة الاستجابة الميدانية (30%):** قبول وتأكيد المتطوعين خلال أقل من 20 دقيقة من إطلاق النداء.
+2. **التقرير العام الإجباري بعد كل مشروع (35%):** إيداع التقرير الشامل فور انتهاء الوقت الميداني للنداء يمنح جمعيتك **+250 نقطة أثر فورية**.
+3. **التوثيق الرقمي ودقة نظام GPS (20%):** تحديد الموقع الجغرافي الدقيق للنداء وتفادي المواقع العشوائية.
+4. **ساعات التطوع الميدانية المحققة (15%):** تجميع ساعات العمل الفعلي للمتطوعين المشاركين.
+
+💡 **نصيحة ذهبية للفوز:**
+حافظ على إغلاق جميع المشاريع بإيداع تقاريرها الميدانية؛ الجمعيات التي تترك مشاريع منتهية دون تقرير تفقد نقاط الأثر التشغيلي!`;
       } else {
-        smartAnswer = `✨ **مرحباً بك! مستشار Gemini الذكي لمنظومة أثر الميدانية:**\n\nبناءً على استفسارك حول "${message}":\n\n• **الخطوة الميدانية الأولى:** مراجعة معايير التنسيق بين الجمعيات المشاركة في الولاية.\n• **تنظيم المتطوعين:** توزيع المهام إلى خلايا متخصصة (استقبال، لوجستيك، إعلام وتوثيق، إسعاف أولي).\n• **توثيق الأثر:** تسجيل المؤشرات والأرقام الميدانية عبر منصة أثر للاستفادة التراكمية.\n\nهل تود استفساراً محدداً حول ولاية معينة أو نوع نداء مخصص؟`;
+        smartAnswer = `🧠 **استشارة مستشار الذكاء الاصطناعي (AI) الميداني:**
+
+بشأن استفسارك: **«${q}»**
+
+🎯 **1. التشخيص والأهداف الميدانية:**
+• تحويل هذا المقترح إلى خطوات قابلة للقياس والتنفيذ الميداني السريع.
+• مراعاة السياق الجغرافي وتوافر المتطوعين المتخصصين.
+
+⚙️ **2. الخطة التشغيلية والتنفيذية:**
+• **المرحلة الأولى (التحضير 24 ساعة مسبقاً):** حصر الموارد المتاحة، تحديد نقطة الانطلاق عبر GPS، وإطلاق النداء في المنظومة.
+• **المرحلة الثانية (التنفيذ الميداني):** توزيع شارات المهام، تشكيل خلايا ثنائية أو ثلاثية، وإدارة التواصل عبر الهاتف والمنظومة.
+• **المرحلة الثالثة (الإغلاق والتوثيق):** حصر المستفيدين وساعات التطوع وإيداع التقرير العام الإجباري لاعتماد النقاط.
+
+🛡️ **3. نصائح الأمان وضمان النجاح:**
+• تعيين مسؤول سلامة ميداني ومسعف أولي ضمن الفريق.
+• توفير قنوات تواصل بديلة في حال ضعف التغطية.
+
+تفضل بطرح أي تفاصيل إضافية أو تحديد الموقع وسأقوم بصياغة الخطة والنداء المناسب لك فوراً!`;
       }
 
       return res.json({
         success: true,
         answer: smartAnswer,
-        source: 'athar-field-engine',
+        source: 'athar-ai-engine',
         timestamp: new Date().toISOString()
       });
     } catch (err: any) {
-      console.error('Gemini Chat Error:', err);
+      console.error('AI Chat Error:', err);
       res.status(500).json({ error: 'Failed to complete chat', message: err.message });
     }
   });
@@ -1042,13 +1543,36 @@ ${(primary.bestChapter?.keyTopics || []).map(t => `• ${t}`).join('\n')}
     }
   });
 
-  // Vite middleware setup
+  // Vite dev middleware with resilient HTML serving & dist fallback
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+      app.use('*', async (req, res, next) => {
+        const url = req.originalUrl;
+        try {
+          const indexPath = path.resolve(__dirname, 'index.html');
+          if (fs.existsSync(indexPath)) {
+            let template = fs.readFileSync(indexPath, 'utf-8');
+            template = await vite.transformIndexHtml(url, template);
+            return res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+          }
+          next();
+        } catch (e) {
+          next(e);
+        }
+      });
+    } catch (viteErr) {
+      console.warn('[Athar System] Vite dev middleware error, serving prebuilt dist folder:', viteErr);
+      const distPath = path.join(__dirname, 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));

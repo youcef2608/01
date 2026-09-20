@@ -18,7 +18,10 @@ import {
   HeartHandshake, 
   ShieldCheck, 
   Compass,
-  ArrowDown
+  ArrowDown,
+  KeyRound,
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
 import { GeminiChatMessage, Call } from '../../types';
 import { ALGERIA_WILAYAS } from '../../data/authData';
@@ -30,15 +33,28 @@ interface GeminiAIChatViewProps {
 
 export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
   calls = [],
-  currentWilaya = '16 - الجزائر العاصمة'
+  currentWilaya = 'الجزائر العاصمة'
 }) => {
+  const selectedWilaya = currentWilaya;
+  const [apiKey, setApiKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem('athar_gemini_key') || '';
+    } catch (e) {
+      return '';
+    }
+  });
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
+  const [keyStatusMsg, setKeyStatusMsg] = useState<string | null>(null);
+  const [isSavingKey, setIsSavingKey] = useState(false);
+
   const [messages, setMessages] = useState<GeminiChatMessage[]>([
     {
       id: 'init-1',
       role: 'model',
-      text: 'مرحباً بك! أنا مستشارك الميداني **Gemini** لمنظومة «أثر» بالجزائر 🇩🇿.\n\nأنا جاهز لتقديم المشورة الفورية حول:\n• بروتوكولات الحماية المدنية والإسعاف الطبي الأولي\n• لوجستيات قوافل الإغاثة وتوزيع السلال الغذائية\n• خطط السلامة الميدانية وحملات التشجير وإدارة المتطوعين\n\nاسألني في أي وقت أو اختر أحد المواضيع السريعة أدناه.',
+      text: 'مرحباً بك! أنا مستشارك الذكي الميداني (AI) لمنظومة «أثر» بالجزائر 🇩🇿.\n\nأنا جاهز للإجابة عن كل سؤال وتقديم المشورة الفورية حول أي موضوع:\n• صياغة واقتراح نداءات ميدانية احترافية ومؤثرة\n• خطط توزيع القوافل الإغاثية وسلال المؤن الغذائية\n• إدارة وحشد وتوجيه فرق المتطوعين وتوزيع المهام\n• بروتوكولات السلامة الميدانية والإسعافات والتدخل السريع\n• الاستشارات اللوجستية والتنظيمية لمشاريع الجمعيات\n\nتفضل بطرح أي سؤال أو استفسار وسأجيبك فوراً وبدقة عالية!',
       timestamp: new Date().toLocaleTimeString('ar-DZ', { hour: '2-digit', minute: '2-digit' }),
-      source: 'gemini-3.8-flash'
+      source: 'athar-ai'
     }
   ]);
 
@@ -46,7 +62,6 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState<string | null>(null);
-  const [selectedWilaya, setSelectedWilaya] = useState(currentWilaya);
   const [activeMode, setActiveMode] = useState<'general' | 'emergency' | 'volunteering'>('general');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [activeAttachment, setActiveAttachment] = useState<{
@@ -146,6 +161,33 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleSaveApiKey = async () => {
+    setIsSavingKey(true);
+    try {
+      const res = await fetch('/api/ai/save-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: keyInput })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setApiKey(keyInput.trim());
+        localStorage.setItem('athar_gemini_key', keyInput.trim());
+        setKeyStatusMsg('تم تفعيل الاتصال المباشر بـ Google Gemini Live بنجاح 🟢');
+        setTimeout(() => {
+          setShowKeyModal(false);
+          setKeyStatusMsg(null);
+        }, 1200);
+      } else {
+        setKeyStatusMsg(data.error || 'تعذر حفظ المفتاح.');
+      }
+    } catch (e: any) {
+      setKeyStatusMsg(e.message || 'خطأ في الاتصال بالسيرفر');
+    } finally {
+      setIsSavingKey(false);
+    }
+  };
+
   const handleSendMessage = async (textToSend?: string) => {
     const query = (textToSend || inputQuery).trim();
     if (!query || isLoading) return;
@@ -167,14 +209,17 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
     try {
       const res = await fetch('/api/ai/gemini-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'x-gemini-key': apiKey } : {})
+        },
         body: JSON.stringify({
           message: query,
+          apiKey: apiKey || undefined,
           history: messages.slice(-6).map(m => ({
             role: m.role,
             text: m.text
           })),
-          wilaya: selectedWilaya,
           mode: activeMode,
           attachment: activeAttachment
         })
@@ -187,7 +232,7 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
         role: 'model',
         text: data.answer || 'تمت معالجة الاستفسار بنجاح.',
         timestamp: new Date().toLocaleTimeString('ar-DZ', { hour: '2-digit', minute: '2-digit' }),
-        source: data.source || 'gemini-3.8-flash'
+        source: data.source === 'gemini-live' ? 'Google Gemini Live' : 'Athar AI Engine'
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -230,45 +275,44 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
 
   return (
     <div 
-      className="relative flex flex-col w-full h-[calc(100vh-8.5rem)] rounded-3xl overflow-hidden border border-white/10 shadow-2xl transition-all"
-      style={{
-        background: 'radial-gradient(ellipse at 50% 100%, rgba(13, 34, 88, 0.6) 0%, rgba(8, 16, 42, 0.95) 45%, #05070c 100%)'
-      }}
+      className="relative flex flex-col w-full h-[calc(100vh-8.5rem)] rounded-2xl overflow-hidden border border-stone-800 shadow-xl transition-all bg-[#0e121b]"
     >
       {/* Top Floating Context Header */}
-      <div className="z-10 flex items-center justify-between px-5 py-3 border-b border-white/10 bg-[#070b14]/70 backdrop-blur-md">
+      <div className="z-10 flex items-center justify-between px-5 py-3 border-b border-stone-800 bg-[#111622]/90 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/20">
-            <Sparkles className="w-4 h-4 text-white animate-pulse" />
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <Sparkles className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-sm text-white tracking-wide font-sans">Gemini</span>
-              <span className="px-1.5 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/30 text-[10px] text-blue-300 font-mono font-bold">
-                Flash 3.8
+              <span className="font-bold text-sm text-white tracking-wide">مساعد التنسيق الميداني (AI)</span>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-[10px] text-emerald-400 font-bold">
+                متاح للاستشارة
               </span>
             </div>
-            <p className="text-[11px] text-stone-400">مستشار أثر الذكي للمبادرات الميدانية بالجزائر</p>
+            <p className="text-xs text-stone-400">استشارات فورية في إدارة القوافل الإغاثية، تخطيط النداءات، وتوجيه المتطوعين</p>
           </div>
         </div>
 
         {/* Action controls */}
         <div className="flex items-center gap-2 text-xs">
-          {/* Wilaya Filter Picker */}
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-stone-300 text-xs">
-            <MapPin className="w-3.5 h-3.5 text-emerald-400" />
-            <select
-              value={selectedWilaya}
-              onChange={e => setSelectedWilaya(e.target.value)}
-              className="bg-transparent text-white text-xs border-none outline-none cursor-pointer pr-1"
-            >
-              {ALGERIA_WILAYAS.map(w => (
-                <option key={w} value={w} className="bg-[#121622] text-white">
-                  {w}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* AI Live Key Modal Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setKeyInput(apiKey);
+              setShowKeyModal(true);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+              apiKey
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-sm'
+                : 'bg-purple-500/15 border-purple-500/30 text-purple-300 hover:bg-purple-500/25'
+            }`}
+            title="إعداد وتوصيل مفتاح الذكاء الاصطناعي (Google Gemini Live)"
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{apiKey ? 'مفتاح AI: متصل Live 🟢' : 'ربط مفتاح AI Live'}</span>
+          </button>
 
           {/* Mode toggle */}
           <button
@@ -302,18 +346,18 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
 
       {/* Messages Scroll Area */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-6 scrollbar-thin scrollbar-thumb-white/10">
-        {/* Gemini Central Greeting if few messages */}
+        {/* AI Central Greeting if few messages */}
         {messages.length <= 1 && (
           <div className="max-w-2xl mx-auto my-6 text-center space-y-4 animate-in fade-in duration-300">
-            <div className="inline-flex items-center justify-center p-4 rounded-3xl bg-blue-500/10 border border-blue-500/20 shadow-2xl shadow-blue-500/10">
-              <Sparkles className="w-10 h-10 text-blue-400" />
+            <div className="inline-flex items-center justify-center p-4 rounded-3xl bg-emerald-500/10 border border-emerald-500/20 shadow-2xl shadow-emerald-500/10">
+              <Sparkles className="w-10 h-10 text-emerald-400" />
             </div>
             <div>
               <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                كيف يمكن لـ <span className="bg-gradient-to-r from-blue-400 via-indigo-300 to-purple-400 bg-clip-text text-transparent">Gemini</span> مساعدتك اليوم؟
+                كيف يمكن لمستشار الذكاء الاصطناعي <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">(AI)</span> مساعدتك اليوم؟
               </h2>
               <p className="text-xs sm:text-sm text-stone-400 max-w-md mx-auto mt-2 leading-relaxed">
-                استشارات فورية حول النداءات، التنسيق بين الجمعيات الجزائرية، وتدابير السلامة الميدانية.
+                استشارات فورية مفتوحة بدون قيود: صياغة النداءات، التخطيط اللوجستي، السلامة الميدانية، والترتيب الوطني.
               </p>
             </div>
 
@@ -599,7 +643,7 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
             <Plus className={`w-5 h-5 transition-transform ${showAttachMenu ? 'rotate-45 text-white' : ''}`} />
           </button>
 
-          {/* Text Input with placeholder "Ask Gemini" */}
+          {/* Text Input with placeholder */}
           <input
             ref={inputRef}
             type="text"
@@ -611,12 +655,12 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
                 handleSendMessage();
               }
             }}
-            placeholder="Ask Gemini"
+            placeholder="اسأل مستشار الذكاء الاصطناعي (AI) عن أي شيء ميداني، لوجستي أو تنظيمي..."
             dir="auto"
-            className="flex-1 bg-transparent border-none outline-none text-white text-sm sm:text-base placeholder:text-stone-400 font-sans px-2 selection:bg-blue-600"
+            className="flex-1 bg-transparent border-none outline-none text-white text-sm sm:text-base placeholder:text-stone-400 font-sans px-2 selection:bg-emerald-600"
           />
 
-          {/* Right Action Icons: Microphone (🎙️) and Send (➤) */}
+          {/* Right Action Icons: Microphone and Send */}
           <div className="flex items-center gap-1 shrink-0">
             {/* Microphone Button */}
             <button
@@ -638,8 +682,8 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
                 type="button"
                 onClick={() => handleSendMessage()}
                 disabled={isLoading}
-                className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg transition-all active:scale-95 shrink-0"
-                title="إرسال إلى Gemini"
+                className="w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center shadow-lg transition-all active:scale-95 shrink-0"
+                title="إرسال إلى مستشار AI"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -649,9 +693,98 @@ export const GeminiAIChatView: React.FC<GeminiAIChatViewProps> = ({
 
         {/* Footnote branding */}
         <p className="text-center text-[10px] text-stone-500 mt-2 font-sans">
-          Gemini may display inaccurate info, so verify critical emergency responses with Protection Civile (14).
+          يقدم مستشار الذكاء الاصطناعي (AI) تحليلات استرشادية، يرجى التنسيق الميداني مع الحماية المدنية (14) في الحالات الاستعجالية.
         </p>
       </div>
+
+      {/* API Key Settings Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="w-full max-w-md bg-[#10141e] border border-white/10 rounded-3xl p-6 shadow-2xl text-right space-y-4 text-stone-200">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-extrabold text-white text-base">ربط مفتاح الذكاء الاصطناعي (AI Live)</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowKeyModal(false)}
+                className="p-1.5 rounded-lg text-stone-400 hover:text-white hover:bg-white/5"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-stone-400 leading-relaxed">
+              لتفعيل الذكاء الاصطناعي الحقيقي المباشر (Google Gemini Live 2.5 Flash)، يمكنك إدخال مفتاح API الخاص بك مجاناً من Google AI Studio:
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-stone-300 block">Gemini API Key</label>
+              <input
+                type="password"
+                value={keyInput}
+                onChange={e => setKeyInput(e.target.value)}
+                placeholder="AIzaSy..."
+                dir="ltr"
+                className="w-full bg-[#181d2a] border border-white/10 rounded-2xl px-4 py-2.5 text-xs text-white font-mono placeholder:text-stone-500 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            {keyStatusMsg && (
+              <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{keyStatusMsg}</span>
+              </div>
+            )}
+
+            <div className="text-[11px] text-stone-500">
+              <span>لا تملك مفتاحاً؟ </span>
+              <a
+                href="https://aistudio.google.com/app/apikey"
+                target="_blank"
+                rel="noreferrer"
+                className="text-emerald-400 underline font-bold"
+              >
+                احصل على مفتاح مجاني في ثوانٍ من Google AI Studio ↗
+              </a>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleSaveApiKey}
+                disabled={isSavingKey}
+                className="flex-1 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-950/50 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>{isSavingKey ? 'جارٍ الحفظ والتحقق...' : 'حفظ وتفعيل المفتاح'}</span>
+              </button>
+
+              {apiKey && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKeyInput('');
+                    setApiKey('');
+                    localStorage.removeItem('athar_gemini_key');
+                    fetch('/api/ai/save-key', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ apiKey: '' })
+                    });
+                    setKeyStatusMsg('تم إلغاء تفعيل المفتاح الخارجي.');
+                    setTimeout(() => setShowKeyModal(false), 800);
+                  }}
+                  className="px-3 py-2.5 rounded-2xl bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 text-xs font-bold transition-all"
+                >
+                  فصل المفتاح
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

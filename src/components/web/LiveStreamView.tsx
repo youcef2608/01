@@ -54,7 +54,7 @@ const LIVE_STREAMS: LiveStreamItem[] = [
   {
     id: 'stream-1',
     title: 'بث مباشر: توزيع قفف وسلال غذائية للأسر المعوزة في الجزائر العاصمة',
-    channel: 'جمعية ناس الخير',
+    channel: 'فريق الإغاثة الميداني',
     channelAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80',
     location: 'مكان عادي (الجزائر العاصمة)',
     viewers: 412,

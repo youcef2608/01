@@ -56,6 +56,42 @@ export interface Call {
   viewsCount: number;
   createdAt: string;
   updatedAt: string;
+  reportCompleted?: boolean;
+  evaluationReport?: ActivityEvaluationReport;
+}
+
+export interface ActivityEvaluationReport {
+  id: string;
+  callId: string;
+  callTitle: string;
+  associationName: string;
+  wilaya: string;
+  targetVolunteers: number;
+  actualVolunteers: number;
+  beneficiariesCount: number;
+  goalAchievementRate: number; // Percentage, e.g., 95
+  whatWentWell: string;
+  challengesFaced: string;
+  operationalNotes: string;
+  lessonsLearned: string[];
+  rating: number; // 1 to 5 stars
+  status: 'submitted' | 'approved';
+  submittedAt: string;
+}
+
+export interface AssociationLeaderboardEntry {
+  rank: number;
+  associationName: string;
+  badgeNumber: string;
+  wilaya: string;
+  completedAppealsCount: number;
+  mobilizedVolunteers: number;
+  impactHours: number;
+  points: number;
+  rating: number;
+  verified: boolean;
+  activeInitiativesCount: number;
+  reportsSubmittedCount: number;
 }
 
 export type ResponseType = 'can_help' | 'want_to_join' | 'need_info' | 'cannot_now';

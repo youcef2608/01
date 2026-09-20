@@ -61,56 +61,7 @@ export const ALGERIA_WILAYAS = [
   '43 - ميلة'
 ];
 
-export const DEMO_ACCOUNTS: AuthUser[] = [
-  {
-    id: 'assoc-dz-nass-el-kheir',
-    name: 'جمعية ناس الخير الجزائر',
-    email: 'contact@nasselkheir.dz',
-    phone: '0550 12 34 56',
-    role: 'association',
-    roleTitle: 'جمعية وطنية معتمدة',
-    associationName: 'جمعية ناس الخير الجزائر',
-    wilaya: '16 - الجزائر العاصمة',
-    badgeNumber: 'DZ-ASSOC-16-042',
-    isVerified: true,
-    activeInitiativesCount: 9,
-    volunteerHours: 850,
-    points: 4320,
-    description: 'جمعية خيرية إنسانية معتمدة تعنى بتنظيم المبادرات الميدانية وتوزيع الإغاثة وحشد المتطوعين عبر ولايات الجزائر.',
-    avatarUrl: '/app-logo.jpg'
-  },
-  {
-    id: 'assoc-dz-ihsane',
-    name: 'جمعية الإحسان الخيرية',
-    email: 'contact@ihsane-dz.org',
-    phone: '0661 44 55 66',
-    role: 'association',
-    roleTitle: 'منظمة إغاثية معتمدة',
-    associationName: 'جمعية الإحسان الخيرية',
-    wilaya: '09 - البليدة',
-    badgeNumber: 'DZ-ASSOC-09-112',
-    isVerified: true,
-    activeInitiativesCount: 6,
-    volunteerHours: 620,
-    points: 3150,
-    description: 'منظمة إنسانية تنموية متخصصة في الإسناد الطبي وكفالة الأسر المتعففة وتسيير قوافل الإغاثة الميدانية.',
-    avatarUrl: '/app-logo.jpg'
-  },
-  {
-    id: 'assoc-dz-baraka',
-    name: 'جمعية البركة الجزائرية للإغاثة',
-    email: 'contact@albaraka-dz.org',
-    phone: '0770 88 99 00',
-    role: 'association',
-    roleTitle: 'جمعية إنسانية معتمدة',
-    associationName: 'جمعية البركة الجزائرية للإغاثة',
-    wilaya: '31 - وهران',
-    badgeNumber: 'DZ-ASSOC-31-088',
-    isVerified: true,
-    activeInitiativesCount: 14,
-    volunteerHours: 1240,
-    points: 5400,
-    description: 'جمعية وطنية رائدة في إدارة الأزمات الإنسانية والعمل التكافلي وإطلاق الحملات التطوعية الكبرى.',
-    avatarUrl: '/app-logo.jpg'
-  }
-];
+export const DEMO_ACCOUNTS: AuthUser[] = [];
+
+export const ASSOCIATIONS_LEADERBOARD: import('../types').AssociationLeaderboardEntry[] = [];
+

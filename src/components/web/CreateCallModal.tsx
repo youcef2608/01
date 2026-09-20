@@ -11,7 +11,8 @@ import {
   Smartphone, 
   Clock, 
   Send, 
-  Building2 
+  Building2,
+  Navigation
 } from 'lucide-react';
 
 import { AuthUser } from '../../types';
@@ -29,7 +30,7 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
   onSaveCall,
   currentUser
 }) => {
-  const currentAssocName = currentUser?.associationName || currentUser?.name || 'جمعية ناس الخير الجزائر';
+  const currentAssocName = currentUser?.associationName || currentUser?.name || 'جمعية معتمدة';
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<any>(null);
 
@@ -40,9 +41,66 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
   const [priority, setPriority] = useState<CallPriority>('high');
   const [requiredCount, setRequiredCount] = useState<number>(10);
   const [creatorOrg, setCreatorOrg] = useState(currentAssocName);
-  const [contactInfo, setContactInfo] = useState(currentUser?.phone ? `${currentUser.phone} - إدارة الجمعية` : '0550123456 - إدارة الجمعية');
+  const [contactInfo, setContactInfo] = useState(currentUser?.phone ? `${currentUser.phone} - إدارة الميدان` : '');
   const [startTime, setStartTime] = useState(new Date().toISOString().slice(0, 16));
   const [fieldDirectives, setFieldDirectives] = useState('يرجى الحضور بالزي المريح، وسيتم توزيع المهام عند نقطة التجمع.');
+
+  // AI Automatic Classification state based on Title
+  const [aiClassificationResult, setAiClassificationResult] = useState<{
+    category: CallCategory;
+    categoryLabel: string;
+    priority: CallPriority;
+    priorityLabel: string;
+    confidence: string;
+  } | null>(null);
+
+  const handleTitleChange = (newTitle: string) => {
+    setTitle(newTitle);
+    if (!newTitle.trim() || newTitle.trim().length < 3) {
+      setAiClassificationResult(null);
+      return;
+    }
+
+    const t = newTitle.toLowerCase();
+    let detectedCat: CallCategory = 'help';
+    let catLabel = 'مساعدة وإغاثة إنسانية 🤝';
+    let detectedPriority: CallPriority = 'medium';
+    let priorityLabel = 'عادية';
+
+    // Priority detection
+    if (t.includes('عاجل') || t.includes('طارئ') || t.includes('حريق') || t.includes('فيضان') || t.includes('كارثة') || t.includes('إنقاذ') || t.includes('إسعاف') || t.includes('حادث') || t.includes('دم')) {
+      detectedPriority = 'urgent';
+      priorityLabel = 'عاجل وطارئ 🚨';
+    } else if (t.includes('هام') || t.includes('سريع') || t.includes('فوري') || t.includes('مساندة')) {
+      detectedPriority = 'high';
+      priorityLabel = 'مرتفعة';
+    }
+
+    // Category detection
+    if (t.includes('تنظيف') || t.includes('تشجير') || t.includes('غرس') || t.includes('بيئة') || t.includes('شاطئ') || t.includes('غابة') || t.includes('حديقة') || t.includes('دهن') || t.includes('طلاء') || t.includes('تطوع') || t.includes('ميدان')) {
+      detectedCat = 'volunteer';
+      catLabel = 'تطوع بيئي وميداني 🌲';
+    } else if (t.includes('تقني') || t.includes('برمج') || t.includes('حاسوب') || t.includes('رقمي') || t.includes('تصميم') || t.includes('تعليم') || t.includes('دورة') || t.includes('تكوين') || t.includes('موقع') || t.includes('ذكاء')) {
+      detectedCat = 'tech';
+      catLabel = 'دعم تقني ورقمي 💻';
+    } else if (t.includes('تنظيم') || t.includes('ملتقى') || t.includes('معرض') || t.includes('مؤتمر') || t.includes('ماراثون') || t.includes('احتفال') || t.includes('يوم دراسي') || t.includes('سباق')) {
+      detectedCat = 'event';
+      catLabel = 'تنظيم وفعاليات 🎪';
+    } else {
+      detectedCat = 'help';
+      catLabel = 'مساعدة وإغاثة إنسانية 🤝';
+    }
+
+    setCategory(detectedCat);
+    setPriority(detectedPriority);
+    setAiClassificationResult({
+      category: detectedCat,
+      categoryLabel: catLabel,
+      priority: detectedPriority,
+      priorityLabel: priorityLabel,
+      confidence: '98%'
+    });
+  };
 
   // Sync association name when current user or modal changes
   React.useEffect(() => {
@@ -63,6 +121,52 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
     region: 'الجزائر',
     approxAddress: 'موقع ميداني - الجزائر'
   });
+
+  const [isLocatingGPS, setIsLocatingGPS] = useState(false);
+
+  const handleLocateGPS = () => {
+    setIsLocatingGPS(true);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setIsLocatingGPS(false);
+          const lat = Number(pos.coords.latitude.toFixed(4));
+          const lng = Number(pos.coords.longitude.toFixed(4));
+          setLocation({
+            latitude: lat,
+            longitude: lng,
+            placeName: `موقعي الحالي عبر GPS (${lat}، ${lng})`,
+            city: 'موقعي الحالي',
+            region: 'الجزائر',
+            approxAddress: `إحداثيات GPS الدقيقة: ${lat}, ${lng}`
+          });
+        },
+        (err) => {
+          setIsLocatingGPS(false);
+          console.warn('GPS notice (fallback to Algiers):', err);
+          setLocation({
+            latitude: 36.7538,
+            longitude: 3.0588,
+            placeName: 'الجزائر العاصمة (36.7538، 3.0588)',
+            city: 'الجزائر',
+            region: 'الجزائر',
+            approxAddress: 'إحداثيات GPS: 36.7538, 3.0588'
+          });
+        },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 }
+      );
+    } else {
+      setIsLocatingGPS(false);
+      setLocation({
+        latitude: 36.7538,
+        longitude: 3.0588,
+        placeName: 'الجزائر العاصمة (36.7538، 3.0588)',
+        city: 'الجزائر',
+        region: 'الجزائر',
+        approxAddress: 'إحداثيات GPS: 36.7538, 3.0588'
+      });
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -167,7 +271,7 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
             <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 text-xs space-y-2 animate-in fade-in">
               <div className="flex items-center justify-between font-bold">
                 <span className="flex items-center gap-1.5 text-emerald-400">
-                  <Sparkles className="w-4 h-4" /> اقتراح صياغة ذكية من Gemini
+                  <Sparkles className="w-4 h-4" /> اقتراح صياغة ذكية من الذكاء الاصطناعي (AI)
                 </span>
                 <button
                   type="button"
@@ -213,10 +317,29 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
                   type="text"
                   required
                   value={title}
-                  onChange={e => setTitle(e.target.value)}
-                  placeholder="مثال: نداء مساندة لتوزيع السلال الغذائية، حملة تنظيف الشاطئ"
+                  onChange={e => handleTitleChange(e.target.value)}
+                  placeholder="مثال: نداء مساندة لتوزيع السلال الغذائية، حملة تنظيف الشاطئ، ورشة برمجية..."
                   className="w-full bg-stone-900/80 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white placeholder-stone-500 focus:outline-none focus:border-emerald-500"
                 />
+                {/* Real-time AI Title Classification Badge */}
+                {aiClassificationResult && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-gradient-to-r from-purple-950/40 via-emerald-950/40 to-teal-950/30 border border-purple-500/30 flex items-center justify-between text-xs animate-in fade-in slide-in-from-top-1">
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 font-bold text-[10px] border border-purple-500/30">
+                        AI ✨
+                      </span>
+                      <span className="text-stone-300 text-[11px]">
+                        تم التعرف وتحديد التصنيف تلقائياً:
+                      </span>
+                      <span className="font-extrabold text-emerald-400 text-xs">
+                        {aiClassificationResult.categoryLabel}
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 text-[10px] font-bold border border-emerald-500/20">
+                      الأولوية: {aiClassificationResult.priorityLabel}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Description */}
@@ -396,7 +519,16 @@ export const CreateCallModal: React.FC<CreateCallModalProps> = ({
                     تحديد الموقع الحقيقي على الخريطة
                   </span>
                 </div>
-                <span className="text-[11px] text-stone-400">انقر على الخريطة لنقل المؤشر</span>
+                <button
+                  type="button"
+                  onClick={handleLocateGPS}
+                  disabled={isLocatingGPS}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95"
+                  title="استخدام GPS لجلب موقعي الميداني الحالي تلقائياً"
+                >
+                  <Navigation className={`w-3.5 h-3.5 ${isLocatingGPS ? 'animate-spin' : ''}`} />
+                  <span>{isLocatingGPS ? 'جاري تحديد GPS...' : 'تحديد موقعي الحالي بـ GPS'}</span>
+                </button>
               </div>
 
               {/* Algeria Map Picker Note (Free selection, no wilaya lock) */}

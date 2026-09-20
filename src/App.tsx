@@ -5,6 +5,7 @@ import {
   AppNotification, 
   CallStatus,
   ActivityEvaluation,
+  ActivityEvaluationReport,
   AppUserInboundNote,
   AuthUser
 } from './types';
@@ -18,9 +19,9 @@ import {
 } from './data/seedData';
 import { DEMO_ACCOUNTS } from './data/authData';
 import { AppSidebar, ActiveTabType } from './components/web/AppSidebar';
+import { HomeLandingView } from './components/web/HomeLandingView';
 import { WebDashboard } from './components/web/WebDashboard';
 import { HeatmapPage } from './components/web/HeatmapPage';
-import { InboundAppNotesView } from './components/web/InboundAppNotesView';
 import { GeminiAIChatView } from './components/web/GeminiAIChatView';
 import { AuthView } from './components/web/AuthView';
 import { ImpactView } from './components/web/ImpactView';
@@ -28,6 +29,8 @@ import { CreateCallModal } from './components/web/CreateCallModal';
 import { CallDetailModal } from './components/web/CallDetailModal';
 import { ManageResponsesModal } from './components/web/ManageResponsesModal';
 import { NotificationsDrawer } from './components/web/NotificationsDrawer';
+import { AssociationWelcomeModal } from './components/web/AssociationWelcomeModal';
+import { ProjectEvaluationReportModal } from './components/web/ProjectEvaluationReportModal';
 import { Menu, X, Plus, Bell } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -38,74 +41,88 @@ export function App() {
   const [inboundNotes, setInboundNotes] = useState<AppUserInboundNote[]>(INITIAL_INBOUND_NOTES);
   const [notifications, setNotifications] = useState<AppNotification[]>(INITIAL_NOTIFICATIONS);
 
-  // Authenticated association state (defaults to accredited association account)
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(DEMO_ACCOUNTS[0]);
+  // Authenticated association state (persisted in localStorage, defaults to null)
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('athar_current_user');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return null;
+  });
 
-  // Active responses pool (linked to calls)
-  const [responses, setResponses] = useState<CallResponse[]>([
-    {
-      id: 'resp-1',
-      callId: 'call-1',
-      callTitle: 'توزيع وجبات وسلال غذائية للأسر المتعففة في الجزائر العاصمة',
-      userId: 'user-vol-1',
-      userName: 'يوسف بن بوعلام بن مهيدي',
-      userPhone: '0551239876',
-      responseType: 'can_help',
-      message: 'سأحضر معي سيارة نقل بيك أب للمساعدة في إيصال السلال إلى منازل العائلات.',
-      status: 'accepted',
-      createdAt: '2026-09-18T16:00:00Z'
-    },
-    {
-      id: 'resp-2',
-      callId: 'call-1',
-      callTitle: 'توزيع وجبات وسلال غذائية للأسر المتعففة في الجزائر العاصمة',
-      userId: 'user-top-1',
-      userName: 'خالد بن فيصل المنصور',
-      userPhone: '0509876543',
-      responseType: 'can_help',
-      message: 'متواجد وجاهز للفرز والتنظيم الميداني مع فريق الشباب.',
-      status: 'accepted',
-      createdAt: '2026-09-18T16:30:00Z'
-    },
-    {
-      id: 'resp-3',
-      callId: 'call-2',
-      callTitle: 'حملة تشجير وتنظيف غابة باينام بالجزائر',
-      userId: 'user-top-2',
-      userName: 'مريم بن زايد الجزائري',
-      userPhone: '0562233445',
-      responseType: 'want_to_join',
-      message: 'معي 5 متطوعات من نادي البيئة وجاهزات لأعمال الغرس والتنظيف.',
-      status: 'accepted',
-      createdAt: '2026-09-18T18:00:00Z'
-    },
-    {
-      id: 'resp-4',
-      callId: 'call-3',
-      callTitle: 'إسناد إسعافي وتنظيمي لقافلة الصحة بالبليدة',
-      userId: 'user-top-3',
-      userName: 'د. طارق الجزائري',
-      userPhone: '0547788990',
-      responseType: 'can_help',
-      message: 'طبيب طوارئ، معي حقيبة الإسعافات وجاهز لنقطة الكيلو 15.',
-      status: 'accepted',
-      createdAt: '2026-09-18T20:15:00Z'
+  useEffect(() => {
+    if (currentUser) {
+      try {
+        localStorage.setItem('athar_current_user', JSON.stringify(currentUser));
+      } catch (e) {}
+    } else {
+      localStorage.removeItem('athar_current_user');
     }
-  ]);
+  }, [currentUser]);
 
-  // Active navigation tab (Permanent: dashboard -> heatmap -> ai_chat -> leaderboard -> inbound_notes -> auth)
-  const [activeTab, setActiveTab] = useState<ActiveTabType>('dashboard');
+  // Active responses pool (starts clean and empty)
+  const [responses, setResponses] = useState<CallResponse[]>([]);
+
+  // Active navigation tab (defaults to 'auth' on entry so user sees real login immediately)
+  const [activeTab, setActiveTab] = useState<ActiveTabType>(() => {
+    try {
+      const saved = localStorage.getItem('athar_current_user');
+      if (saved) return 'dashboard';
+    } catch (e) {}
+    return 'auth';
+  });
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
 
   // Modals & Drawers
   const [isCreateCallOpen, setIsCreateCallOpen] = useState(false);
   const [selectedCallForDetail, setSelectedCallForDetail] = useState<Call | null>(null);
   const [selectedCallForResponses, setSelectedCallForResponses] = useState<Call | null>(null);
+  const [selectedCallForReport, setSelectedCallForReport] = useState<Call | null>(null);
+  const [isWelcomeModalOpen, setIsWelcomeModalOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
+  // Sync with Backend Database (Supabase / Server) on mount and periodically
+  const fetchSync = async () => {
+    try {
+      const res = await fetch('/api/sync');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.calls)) {
+          setCalls(data.calls);
+        }
+        if (Array.isArray(data.responses)) {
+          setResponses(data.responses);
+        }
+        if (Array.isArray(data.notes)) {
+          setInboundNotes(data.notes);
+        }
+      }
+    } catch (e) {
+      // Fallback to local state if offline
+    }
+  };
+
+  useEffect(() => {
+    fetchSync();
+    const interval = setInterval(fetchSync, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Handlers: Save Call
-  const handleSaveCall = (newCall: Call) => {
+  const handleSaveCall = async (newCall: Call) => {
     setCalls(prev => [newCall, ...prev]);
+
+    // Send to Server DB / Supabase
+    try {
+      await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newCall)
+      });
+    } catch (e) {
+      console.error('Failed to post call to server', e);
+    }
 
     // Dispatch notification
     const newNotif: AppNotification = {
@@ -132,7 +149,7 @@ export function App() {
   };
 
   // Handlers: Update Call Status
-  const handleUpdateCallStatus = (callId: string, newStatus: CallStatus) => {
+  const handleUpdateCallStatus = async (callId: string, newStatus: CallStatus) => {
     setCalls(prev =>
       prev.map(c => (c.id === callId ? { ...c, status: newStatus, updatedAt: new Date().toISOString() } : c))
     );
@@ -142,10 +159,18 @@ export function App() {
     if (selectedCallForResponses && selectedCallForResponses.id === callId) {
       setSelectedCallForResponses(prev => prev ? { ...prev, status: newStatus } : null);
     }
+
+    try {
+      await fetch(`/api/calls/${callId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+    } catch (e) {}
   };
 
   // Handlers: Update Response Status
-  const handleUpdateResponseStatus = (
+  const handleUpdateResponseStatus = async (
     responseId: string,
     newStatus: 'accepted' | 'rejected' | 'completed'
   ) => {
@@ -161,6 +186,71 @@ export function App() {
         )
       );
     }
+
+    if (resp) {
+      try {
+        await fetch('/api/responses', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...resp, status: newStatus })
+        });
+      } catch (e) {}
+    }
+  };
+
+  // Handlers: Submit Mandatory Project Evaluation Report
+  const handleSubmitEvaluationReport = async (report: ActivityEvaluationReport) => {
+    // 1. Update call with report and marked as completed
+    setCalls(prev =>
+      prev.map(c =>
+        c.id === report.callId
+          ? {
+              ...c,
+              status: 'completed',
+              reportCompleted: true,
+              evaluationReport: report,
+              updatedAt: new Date().toISOString()
+            }
+          : c
+      )
+    );
+
+    // 2. Award +150 points and increment volunteer statistics for the association
+    if (currentUser) {
+      const updatedUser: AuthUser = {
+        ...currentUser,
+        points: (currentUser.points || 0) + 150,
+        volunteerHours: (currentUser.volunteerHours || 0) + 30,
+        activeInitiativesCount: (currentUser.activeInitiativesCount || 0) + 1
+      };
+      setCurrentUser(updatedUser);
+      try {
+        localStorage.setItem('athar_current_user', JSON.stringify(updatedUser));
+      } catch (e) {}
+    }
+
+    // 3. Post to server evaluations sync
+    try {
+      await fetch('/api/evaluations/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ evaluations: [report] })
+      });
+    } catch (e) {
+      console.error('Failed to sync evaluation report', e);
+    }
+
+    // 4. Create official notification
+    const newNotif: AppNotification = {
+      id: `notif-${Date.now()}`,
+      userId: currentUser?.id || 'admin',
+      title: `تم توثيق واعتماد التقرير العام الإجباري: ${report.callTitle}`,
+      body: `تم إيداع التقرير العام بنجاح (${report.actualVolunteers} متطوع، ${report.beneficiariesCount} مستفيد، تحقيق ${report.goalAchievementRate}% للأهداف) واحتساب +150 نقطة أثر للجمعية.`,
+      type: 'system',
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    setNotifications(prev => [newNotif, ...prev]);
   };
 
   // Sync initial evaluations with server knowledge base on load
@@ -179,8 +269,16 @@ export function App() {
     );
   };
 
-  const handleAddNewInboundNote = (note: AppUserInboundNote) => {
+  const handleAddNewInboundNote = async (note: AppUserInboundNote) => {
     setInboundNotes(prev => [note, ...prev]);
+
+    try {
+      await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(note)
+      });
+    } catch (e) {}
 
     const newNotif: AppNotification = {
       id: `notif-${Date.now()}`,
@@ -199,7 +297,15 @@ export function App() {
   const inboundNotesCount = inboundNotes.filter(n => n.status === 'new').length;
 
   return (
-    <div className="min-h-screen bg-[#0c0e14] text-stone-100 flex flex-col md:flex-row font-sans selection:bg-emerald-500 selection:text-white antialiased">
+    <div className="min-h-screen bg-[#0b0e14] text-stone-100 flex flex-col md:flex-row font-sans selection:bg-emerald-500 selection:text-white antialiased relative">
+      {/* Aurora ambient background layers */}
+      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+        <div className="animate-aurora-1 absolute -top-40 right-[-10%] w-[38rem] h-[38rem] rounded-full bg-emerald-500/[0.16] blur-3xl" />
+        <div className="animate-aurora-2 absolute top-1/3 left-[-12%] w-[34rem] h-[34rem] rounded-full bg-teal-400/[0.11] blur-3xl" />
+        <div className="animate-aurora-3 absolute bottom-[-10%] left-1/3 w-[30rem] h-[30rem] rounded-full bg-sky-500/[0.09] blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(16,185,129,0.05),transparent_55%)]" />
+      </div>
+
       {/* 1. Permanent Desktop Sidebar ("اجعل هذا قائمة دائما") */}
       <div className="hidden md:block shrink-0">
         <AppSidebar
@@ -304,16 +410,35 @@ export function App() {
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto relative z-10">
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+          {activeTab === 'home' && (
+            <HomeLandingView
+              calls={calls}
+              currentUser={currentUser}
+              onOpenCreateCall={() => setIsCreateCallOpen(true)}
+              onOpenAiChat={() => setActiveTab('ai_chat')}
+              onOpenLeaderboard={() => setActiveTab('leaderboard')}
+              onOpenAuth={() => setActiveTab('auth')}
+              onOpenDashboard={() => setActiveTab('dashboard')}
+              onSelectCall={call => setSelectedCallForDetail(call)}
+            />
+          )}
+
           {activeTab === 'dashboard' && (
             <WebDashboard
               calls={calls}
+              currentUser={currentUser}
               onOpenCreateCall={() => setIsCreateCallOpen(true)}
               onOpenHeatmap={() => setActiveTab('heatmap')}
+              onOpenAiChat={() => setActiveTab('ai_chat')}
+              onOpenLeaderboard={() => setActiveTab('leaderboard')}
+              onOpenEvaluationReport={call => setSelectedCallForReport(call)}
+              onOpenSwitchAssociation={() => setIsWelcomeModalOpen(true)}
               onSelectCall={call => setSelectedCallForDetail(call)}
               onOpenResponses={call => setSelectedCallForResponses(call)}
               onUpdateCallStatus={handleUpdateCallStatus}
+              onRefresh={fetchSync}
             />
           )}
 
@@ -324,29 +449,19 @@ export function App() {
             />
           )}
 
-          {/* دردشة Gemini الميدانية */}
+          {/* مستشار الذكاء الاصطناعي (AI) */}
           {activeTab === 'ai_chat' && (
             <GeminiAIChatView
               calls={calls}
-              currentWilaya={currentUser?.wilaya || '16 - الجزائر العاصمة'}
             />
           )}
 
-          {/* المتصدرون والأثر */}
+          {/* المتصدرون والأثر والترتيب الوطني */}
           {activeTab === 'leaderboard' && (
             <ImpactView
               currentLeaderboard={INITIAL_LEADERBOARD}
               archives={INITIAL_ARCHIVES}
-            />
-          )}
-
-          {/* ملاحظات الجوال */}
-          {activeTab === 'inbound_notes' && (
-            <InboundAppNotesView
-              notes={inboundNotes}
-              calls={calls}
-              onUpdateNoteStatus={handleUpdateInboundNoteStatus}
-              onAddNewNote={handleAddNewInboundNote}
+              onOpenCreateCall={() => setIsCreateCallOpen(true)}
             />
           )}
 
@@ -365,10 +480,10 @@ export function App() {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-[#1a1d26] bg-[#0e1017] py-5 text-center text-xs text-stone-500 mt-auto">
+        <footer className="border-t border-white/[0.06] bg-[#0e1017]/80 backdrop-blur-xl py-5 text-center text-xs text-stone-500 mt-auto">
           <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.9)] animate-pulse"></span>
               <span className="font-semibold text-stone-400">منظومة أثر الجزائر الميدانية — بوابة الجمعيات</span>
             </div>
             <p>© 2026 أثر | Athar DZ — النظام الرقمي الموحد لإدارة النداءات المجتمعية بالجزائر</p>
@@ -410,6 +525,28 @@ export function App() {
           setNotifications(prev => prev.map(n => ({ ...n, read: true })));
         }}
         onClearAll={() => setNotifications([])}
+      />
+
+      {/* Association Welcome & Login Modal on Entry ("طلب اسم جمعية") */}
+      <AssociationWelcomeModal
+        isOpen={isWelcomeModalOpen}
+        onClose={() => setIsWelcomeModalOpen(false)}
+        onLoginSuccess={user => {
+          setCurrentUser(user);
+          try {
+            localStorage.setItem('athar_association_configured', 'true');
+            localStorage.setItem('athar_current_user', JSON.stringify(user));
+          } catch (e) {}
+        }}
+      />
+
+      {/* Mandatory General Evaluation Report Modal ("تقرير عام إجباري بعد كل مشروع انتهاء وقت") */}
+      <ProjectEvaluationReportModal
+        isOpen={!!selectedCallForReport}
+        onClose={() => setSelectedCallForReport(null)}
+        call={selectedCallForReport}
+        currentUser={currentUser}
+        onSubmitReport={handleSubmitEvaluationReport}
       />
     </div>
   );
